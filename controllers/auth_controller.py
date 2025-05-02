@@ -197,3 +197,29 @@ async def update_user_profile(user_id: str, user_data: dict):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "message": str(e)}
         )
+    
+async def get_user_by_username(username: str):
+    try:
+        # Find user by username
+        user = await user_collection.find_one({"username": username})
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "message": "User not found"}
+            )
+            
+        # Return user data (excluding sensitive info)
+        user_data = serialize_doc(user)
+        if "hashed_password" in user_data:
+            del user_data["hashed_password"]
+            
+        return {"success": True, "data": user_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_user_by_username: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "message": str(e)}
+        )

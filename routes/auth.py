@@ -46,3 +46,10 @@ async def get_user_profile(user_id: str):
     Get user profile by ID
     """
     return await auth_controller.get_user_profile(user_id)
+
+@router.get("/profile/username/{username}")
+async def get_user_profile_by_username(username: str):
+    """
+    Get user profile by username
+    """
+    return await auth_controller.get_user_by_username(username)
