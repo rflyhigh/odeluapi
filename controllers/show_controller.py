@@ -63,7 +63,7 @@ async def get_featured_shows():
     except Exception as e:
         logger.error(f"Error in get_featured_shows: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
-
+    
 async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
     try:
         # Validate ObjectId
