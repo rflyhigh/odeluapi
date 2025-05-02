@@ -68,11 +68,13 @@ async def get_watch_history(user_id: str):
 
 async def get_continue_watching(user_id: str):
     try:
-        # Get incomplete watches (progress > 0 and < 90)
+        # Get incomplete watches (any progress or recently watched but not completed)
         cursor = user_watch_collection.find({
             "userId": user_id,
-            "progress": {"$gt": 0, "$lt": 90},
-            "completed": False
+            "$or": [
+                {"progress": {"$gt": 0, "$lt": 90}},
+                {"completed": False}
+            ]
         }).sort("watchedAt", DESCENDING).limit(10)
         
         # Build content details
@@ -91,6 +93,7 @@ async def get_continue_watching(user_id: str):
                         "image": movie.get("image", ""),
                         "duration": movie.get("duration", ""),
                         "progress": item.get("progress", 0),
+                        "completed": item.get("completed", False),
                         "watchedAt": item.get("watchedAt")
                     })
             else:  # episode
@@ -118,6 +121,7 @@ async def get_continue_watching(user_id: str):
                         "title": episode.get("title", "Unknown Episode"),
                         "image": episode.get("image", ""),
                         "progress": item.get("progress", 0),
+                        "completed": item.get("completed", False),
                         "watchedAt": item.get("watchedAt")
                     })
         
