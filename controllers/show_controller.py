@@ -261,10 +261,24 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
         # Build response object
         episode_dict = serialize_doc(episode)
         
-        # Secure video URLs in links
+        # Debug log to check links before securing
         if "links" in episode_dict and episode_dict["links"]:
-            for link in episode_dict["links"]:
-                link["url"] = secure_video_url(link["url"])
+            logger.info(f"Episode {episode_id} has {len(episode_dict['links'])} links before securing")
+            for i, link in enumerate(episode_dict["links"]):
+                logger.info(f"Link {i}: {link.get('name')} - URL exists: {'url' in link}")
+                if 'url' in link:
+                    # Secure video URLs in links
+                    original_url = link["url"]
+                    link["url"] = secure_video_url(original_url)
+                    logger.info(f"Secured URL: original length {len(original_url)} -> new length {len(link['url'])}")
+                else:
+                    logger.warning(f"Link {i} has no URL key")
+        else:
+            logger.warning(f"Episode {episode_id} has no links or empty links array")
+            # If no links found, add a default message
+            episode_dict["links"] = episode_dict.get("links", [])
+            if not episode_dict["links"]:
+                logger.warning("No links found for episode, check your database")
         
         episode_dict["seasonId"] = {
             "_id": str(season["_id"]),
@@ -344,7 +358,7 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error in get_episode_by_id: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
-
+      
 async def update_episode_watch_status(episode_id: str, user_id: str, progress: float = 0, completed: bool = False):
     try:
         # Validate ObjectId
