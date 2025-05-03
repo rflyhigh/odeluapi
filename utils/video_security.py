@@ -40,7 +40,3 @@ def secure_video_url(url):
     
     # If it's not an m3u8 file, return the original URL
     return url
-            return url
-    
-    # If it's not an m3u8 file, return the original URL
-    return url
