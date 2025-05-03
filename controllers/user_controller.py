@@ -4,12 +4,18 @@ from bson import ObjectId
 from pymongo import DESCENDING
 import logging
 
-from database import user_watch_collection, movie_collection, episode_collection, season_collection, show_collection, serialize_doc
+from database import user_watch_collection, movie_collection, episode_collection, season_collection, show_collection, serialize_doc, get_cache, set_cache, delete_cache
 
 logger = logging.getLogger(__name__)
 
 async def get_watch_history(user_id: str):
     try:
+        # Try to get from cache first
+        cache_key = f"user:{user_id}:watch_history"
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
         # Get user's watch history
         cursor = user_watch_collection.find({"userId": user_id}).sort("watchedAt", DESCENDING).limit(20)
         
@@ -18,8 +24,9 @@ async def get_watch_history(user_id: str):
         async for item in cursor:
             item = serialize_doc(item)
             if item["contentType"] == "movie":
-                # Get movie details
-                movie = await movie_collection.find_one({"_id": ObjectId(item["contentId"])})
+                # Get movie details with projection
+                projection = {"title": 1, "image": 1, "duration": 1}
+                movie = await movie_collection.find_one({"_id": ObjectId(item["contentId"])}, projection)
                 if movie:
                     movie = serialize_doc(movie)
                     content_details.append({
@@ -33,17 +40,20 @@ async def get_watch_history(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
             else:  # episode
-                # Get episode details
-                episode = await episode_collection.find_one({"_id": ObjectId(item["contentId"])})
+                # Get episode details with projection
+                episode_projection = {"title": 1, "image": 1, "episodeNumber": 1, "seasonId": 1}
+                episode = await episode_collection.find_one({"_id": ObjectId(item["contentId"])}, episode_projection)
                 if episode:
                     episode = serialize_doc(episode)
-                    # Get season details
-                    season = await season_collection.find_one({"_id": ObjectId(episode["seasonId"])})
+                    # Get season details with projection
+                    season_projection = {"seasonNumber": 1, "showId": 1}
+                    season = await season_collection.find_one({"_id": ObjectId(episode["seasonId"])}, season_projection)
                     season = serialize_doc(season) if season else None
-                    # Get show details
+                    # Get show details with projection
                     show = None
                     if season:
-                        show = await show_collection.find_one({"_id": ObjectId(season["showId"])})
+                        show_projection = {"title": 1, "image": 1}
+                        show = await show_collection.find_one({"_id": ObjectId(season["showId"])}, show_projection)
                         show = serialize_doc(show) if show else None
                     
                     content_details.append({
@@ -61,13 +71,24 @@ async def get_watch_history(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
         
-        return {"success": True, "data": content_details}
+        result = {"success": True, "data": content_details}
+        
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
+        
+        return result
     except Exception as e:
         logger.error(f"Error in get_watch_history: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
 async def get_continue_watching(user_id: str):
     try:
+        # Try to get from cache first
+        cache_key = f"user:{user_id}:continue_watching"
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
         # Get incomplete watches (any progress or recently watched but not completed)
         cursor = user_watch_collection.find({
             "userId": user_id,
@@ -82,8 +103,9 @@ async def get_continue_watching(user_id: str):
         async for item in cursor:
             item = serialize_doc(item)
             if item["contentType"] == "movie":
-                # Get movie details
-                movie = await movie_collection.find_one({"_id": ObjectId(item["contentId"])})
+                # Get movie details with projection
+                projection = {"title": 1, "image": 1, "duration": 1}
+                movie = await movie_collection.find_one({"_id": ObjectId(item["contentId"])}, projection)
                 if movie:
                     movie = serialize_doc(movie)
                     content_details.append({
@@ -97,17 +119,20 @@ async def get_continue_watching(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
             else:  # episode
-                # Get episode details
-                episode = await episode_collection.find_one({"_id": ObjectId(item["contentId"])})
+                # Get episode details with projection
+                episode_projection = {"title": 1, "image": 1, "episodeNumber": 1, "seasonId": 1}
+                episode = await episode_collection.find_one({"_id": ObjectId(item["contentId"])}, episode_projection)
                 if episode:
                     episode = serialize_doc(episode)
-                    # Get season details
-                    season = await season_collection.find_one({"_id": ObjectId(episode["seasonId"])})
+                    # Get season details with projection
+                    season_projection = {"seasonNumber": 1, "showId": 1}
+                    season = await season_collection.find_one({"_id": ObjectId(episode["seasonId"])}, season_projection)
                     season = serialize_doc(season) if season else None
-                    # Get show details
+                    # Get show details with projection
                     show = None
                     if season:
-                        show = await show_collection.find_one({"_id": ObjectId(season["showId"])})
+                        show_projection = {"title": 1, "image": 1}
+                        show = await show_collection.find_one({"_id": ObjectId(season["showId"])}, show_projection)
                         show = serialize_doc(show) if show else None
                     
                     content_details.append({
@@ -125,7 +150,12 @@ async def get_continue_watching(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
         
-        return {"success": True, "data": content_details}
+        result = {"success": True, "data": content_details}
+        
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
+        
+        return result
     except Exception as e:
         logger.error(f"Error in get_continue_watching: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
