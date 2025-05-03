@@ -1,13 +1,18 @@
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, ORJSONResponse
 from starlette.staticfiles import StaticFiles
 import os
 import logging
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from database import create_indexes
 from routes import movies, shows, admin, user, auth, watchlist
+from config import RATE_LIMIT_DEFAULT
 
 # Configure logging
 logging.basicConfig(
@@ -16,12 +21,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=[RATE_LIMIT_DEFAULT])
+
+# Create FastAPI app with ORJSON for faster serialization
 app = FastAPI(
     title="Odelu API",
     description="Backend API for Odelu streaming platform",
-    version="1.0.0"
+    version="1.0.0",
+    default_response_class=ORJSONResponse
 )
+
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
@@ -42,7 +56,8 @@ app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"]
 
 # Root endpoint
 @app.get("/", tags=["root"])
-async def root():
+@limiter.limit("60/minute")
+async def root(request: Request):
     return {
         "message": "Odelu API Server (Python FastAPI)",
         "status": "running",
@@ -55,6 +70,11 @@ async def root():
         ]
     }
 
+# Health check endpoint
+@app.get("/health", tags=["health"])
+async def health_check():
+    return {"status": "healthy"}
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
@@ -66,6 +86,11 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down the application")
+    # Close database connections
+    from database import client, redis_client
+    client.close()
+    if redis_client:
+        await redis_client.close()
 
 # Serve static files if in production
 if os.getenv("ENVIRONMENT") == "production":
@@ -75,4 +100,10 @@ if os.getenv("ENVIRONMENT") == "production":
         app.mount("/", StaticFiles(directory=build_path, html=True), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=int(os.getenv("PORT", "8000")), 
+        reload=True,
+        workers=int(os.getenv("WORKERS", "4"))
+    )
