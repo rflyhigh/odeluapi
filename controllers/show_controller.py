@@ -5,6 +5,7 @@ from pymongo import DESCENDING
 import logging
 
 from database import show_collection, season_collection, episode_collection, user_watch_collection, serialize_doc
+from utils.video_security import secure_video_url
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,14 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
             episodes_cursor = episode_collection.find({"seasonId": season["_id"]}).sort("episodeNumber", 1)
             episodes = []
             async for episode in episodes_cursor:
-                episodes.append(serialize_doc(episode))
+                episode_dict = serialize_doc(episode)
+                
+                # Secure video URLs in links
+                if "links" in episode_dict and episode_dict["links"]:
+                    for link in episode_dict["links"]:
+                        link["url"] = secure_video_url(link["url"])
+                
+                episodes.append(episode_dict)
             
             season_dict["episodes"] = episodes
             seasons.append(season_dict)
@@ -170,6 +178,12 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
         
         # Build response object
         episode_dict = serialize_doc(episode)
+        
+        # Secure video URLs in links
+        if "links" in episode_dict and episode_dict["links"]:
+            for link in episode_dict["links"]:
+                link["url"] = secure_video_url(link["url"])
+        
         episode_dict["seasonId"] = {
             "_id": str(season["_id"]),
             "showId": {
