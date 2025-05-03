@@ -1,16 +1,22 @@
-from fastapi import APIRouter, Depends, Query, Path, Cookie, Response
+from fastapi import APIRouter, Depends, Query, Path, Cookie, Response, Request
 from typing import Optional
 import logging
 
 from controllers import movie_controller
 from middleware.user_tracker import get_user_id
 from utils.auth import get_current_user_optional
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from config import RATE_LIMIT_DEFAULT
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.get("/")
+@limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_all_movies(
+    request: Request,
     tag: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
@@ -23,14 +29,20 @@ async def get_all_movies(
     return await movie_controller.get_all_movies(tag, search, limit, page)
 
 @router.get("/featured")
-async def get_featured_movies(user_id: str = Depends(get_user_id)):
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_featured_movies(
+    request: Request,
+    user_id: str = Depends(get_user_id)
+):
     """
     Get featured movies
     """
     return await movie_controller.get_featured_movies()
 
 @router.get("/{movie_id}")
+@limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_movie_by_id(
+    request: Request,
     movie_id: str = Path(..., description="The ID of the movie to get"),
     user_id: str = Depends(get_user_id)
 ):
@@ -40,7 +52,9 @@ async def get_movie_by_id(
     return await movie_controller.get_movie_by_id(movie_id, user_id)
 
 @router.post("/{movie_id}/watch")
+@limiter.limit("30/minute")
 async def update_watch_status(
+    request: Request,
     movie_id: str = Path(..., description="The ID of the movie to update"),
     progress: float = Query(0, ge=0, le=100),
     completed: bool = False,
