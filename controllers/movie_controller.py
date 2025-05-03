@@ -5,6 +5,7 @@ from pymongo import DESCENDING
 import logging
 
 from database import movie_collection, user_watch_collection, serialize_doc
+from utils.video_security import secure_video_url
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,11 @@ async def get_movie_by_id(movie_id: str, user_id: Optional[str] = None):
         # Add type field
         movie_dict = serialize_doc(movie)
         movie_dict["type"] = "movie"
+        
+        # Secure video URLs in links
+        if "links" in movie_dict and movie_dict["links"]:
+            for link in movie_dict["links"]:
+                link["url"] = secure_video_url(link["url"])
         
         # Get related movies based on tags
         related_cursor = movie_collection.find({
