@@ -4,7 +4,7 @@ from bson import ObjectId
 from datetime import datetime
 import logging
 
-from database import watchlist_collection, movie_collection, show_collection, serialize_doc
+from database import watchlist_collection, movie_collection, show_collection, serialize_doc, get_cache, set_cache, delete_cache, delete_cache_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,9 @@ async def add_to_watchlist(user_id: str, content_type: str, content_id: str):
             
         # Check if content exists
         if content_type == "movie":
-            content = await movie_collection.find_one({"_id": ObjectId(content_id)})
+            content = await movie_collection.find_one({"_id": ObjectId(content_id)}, {"_id": 1})
         else:
-            content = await show_collection.find_one({"_id": ObjectId(content_id)})
+            content = await show_collection.find_one({"_id": ObjectId(content_id)}, {"_id": 1})
             
         if not content:
             raise HTTPException(
@@ -61,6 +61,9 @@ async def add_to_watchlist(user_id: str, content_type: str, content_id: str):
         
         # Get the created watchlist item
         created_item = await watchlist_collection.find_one({"_id": result.inserted_id})
+        
+        # Clear user watchlist cache
+        await delete_cache(f"user:{user_id}:watchlist")
         
         return {"success": True, "data": serialize_doc(created_item)}
     except HTTPException:
@@ -101,6 +104,9 @@ async def remove_from_watchlist(user_id: str, content_type: str, content_id: str
                 detail={"success": False, "message": f"{content_type.capitalize()} not found in watchlist"}
             )
             
+        # Clear user watchlist cache
+        await delete_cache(f"user:{user_id}:watchlist")
+        
         return {"success": True, "data": {}}
     except HTTPException:
         raise
@@ -113,6 +119,12 @@ async def remove_from_watchlist(user_id: str, content_type: str, content_id: str
 
 async def get_watchlist(user_id: str):
     try:
+        # Try to get from cache first
+        cache_key = f"user:{user_id}:watchlist"
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
         # Get all watchlist items for user
         cursor = watchlist_collection.find({"userId": user_id}).sort("addedAt", -1)
         
@@ -123,9 +135,12 @@ async def get_watchlist(user_id: str):
             content_id = item["contentId"]
             content_type = item["contentType"]
             
+            # Get content details with projection
+            projection = {"title": 1, "image": 1, "releaseYear": 1, "startYear": 1}
+            
             # Get content details
             if content_type == "movie":
-                content = await movie_collection.find_one({"_id": ObjectId(content_id)})
+                content = await movie_collection.find_one({"_id": ObjectId(content_id)}, projection)
                 if content:
                     content = serialize_doc(content)
                     watchlist.append({
@@ -137,7 +152,7 @@ async def get_watchlist(user_id: str):
                         "addedAt": item.get("addedAt")
                     })
             else:  # show
-                content = await show_collection.find_one({"_id": ObjectId(content_id)})
+                content = await show_collection.find_one({"_id": ObjectId(content_id)}, projection)
                 if content:
                     content = serialize_doc(content)
                     watchlist.append({
@@ -149,7 +164,12 @@ async def get_watchlist(user_id: str):
                         "addedAt": item.get("addedAt")
                     })
         
-        return {"success": True, "data": watchlist}
+        result = {"success": True, "data": watchlist}
+        
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
+        
+        return result
     except Exception as e:
         logger.error(f"Error in get_watchlist: {str(e)}")
         raise HTTPException(
@@ -171,7 +191,7 @@ async def is_in_watchlist(user_id: str, content_type: str, content_id: str):
             "userId": user_id,
             "contentType": content_type,
             "contentId": ObjectId(content_id)
-        })
+        }, {"_id": 1})  # Only get the ID
         
         return {"success": True, "data": {"inWatchlist": item is not None}}
     except HTTPException:
