@@ -5,7 +5,7 @@ from typing import Optional
 import logging
 from bson import ObjectId
 
-from database import user_collection, serialize_doc
+from database import user_collection, serialize_doc, delete_cache_pattern
 from models.user import UserCreate, User, UserInDB
 from utils.auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -182,6 +182,9 @@ async def update_user_profile(user_id: str, user_data: dict):
         
         # Get updated user
         updated_user = await user_collection.find_one({"_id": ObjectId(user_id)})
+        
+        # Clear user cache
+        await delete_cache_pattern(f"user:{user_id}:*")
         
         # Return updated user data (excluding sensitive info)
         user_data = serialize_doc(updated_user)
