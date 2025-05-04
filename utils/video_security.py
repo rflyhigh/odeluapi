@@ -26,7 +26,7 @@ def secure_video_url(url):
             # Call the secure video proxy service
             logger.info(f"Securing m3u8 URL: {url[:50]}...")  # Log partial URL for privacy
             response = requests.post(
-                "https://odeluhost.skibiditoilet-9330jk.workers.dev/encrypt",
+                "https://v1.m3u8lock.workers.dev/encrypt",
                 json={"url": url},
                 headers={"Content-Type": "application/json"},
                 timeout=5  # Add timeout to prevent hanging
