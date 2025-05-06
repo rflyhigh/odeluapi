@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from pymongo import DESCENDING
 import logging
@@ -135,27 +135,12 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
         async for season in seasons_cursor:
             season_dict = serialize_doc(season)
             
-            # Get episodes for this season with projection
-            episode_projection = {
-                "title": 1,
-                "episodeNumber": 1,
-                "image": 1,
-                "description": 1,
-                "duration": 1,
-                "seasonId": 1
-            }
+            # Only include essential season data, not all episodes
+            season_dict["episodeCount"] = len(season.get("episodes", []))
+            # Remove the full episodes array to reduce payload size
+            if "episodes" in season_dict:
+                del season_dict["episodes"]
             
-            episodes_cursor = episode_collection.find(
-                {"seasonId": season["_id"]}, 
-                episode_projection
-            ).sort("episodeNumber", 1)
-            
-            episodes = []
-            async for episode in episodes_cursor:
-                episode_dict = serialize_doc(episode)
-                episodes.append(episode_dict)
-            
-            season_dict["episodes"] = episodes
             seasons.append(season_dict)
         
         # Add seasons to show
@@ -193,30 +178,36 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
         
         # Get user watch history if user_id provided
         if user_id:
-            # Get all episode IDs from the show
-            episode_ids = []
-            for season in seasons:
-                for episode in season.get("episodes", []):
-                    episode_ids.append(ObjectId(episode["_id"]))
+            # Get all episode IDs from the show's seasons
+            season_ids = [ObjectId(season["_id"]) for season in seasons]
             
-            if episode_ids:
-                # Get watch status for all episodes
-                watch_cursor = user_watch_collection.find({
-                    "userId": user_id,
-                    "contentType": "episode",
-                    "contentId": {"$in": episode_ids}
-                })
+            # Find episodes for the first season only to avoid loading everything
+            if season_ids:
+                first_season_episodes = await episode_collection.find(
+                    {"seasonId": season_ids[0]},
+                    {"_id": 1}  # Only get IDs
+                ).to_list(length=None)
                 
-                watch_history = []
-                async for watch in watch_cursor:
-                    watch_history.append({
-                        "episodeId": str(watch["contentId"]),
-                        "progress": watch.get("progress", 0),
-                        "completed": watch.get("completed", False),
-                        "lastWatched": watch.get("watchedAt")
+                first_season_episode_ids = [ep["_id"] for ep in first_season_episodes]
+                
+                if first_season_episode_ids:
+                    # Get watch status for first season episodes
+                    watch_cursor = user_watch_collection.find({
+                        "userId": user_id,
+                        "contentType": "episode",
+                        "contentId": {"$in": first_season_episode_ids}
                     })
-                
-                result["watchHistory"] = watch_history
+                    
+                    watch_history = []
+                    async for watch in watch_cursor:
+                        watch_history.append({
+                            "episodeId": str(watch["contentId"]),
+                            "progress": watch.get("progress", 0),
+                            "completed": watch.get("completed", False),
+                            "lastWatched": watch.get("watchedAt")
+                        })
+                    
+                    result["watchHistory"] = watch_history
         else:
             # Cache the result (only if no user-specific data)
             await set_cache(cache_key, result, 1800)  # Cache for 30 minutes
@@ -226,6 +217,104 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
         raise
     except Exception as e:
         logger.error(f"Error in get_show_by_id: {str(e)}")
+        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit: int = 10, user_id: Optional[str] = None):
+    """Get paginated episodes for a specific season"""
+    try:
+        # Validate ObjectIds
+        if not ObjectId.is_valid(show_id) or not ObjectId.is_valid(season_id):
+            raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid ID format"})
+        
+        # Try to get from cache first
+        cache_key = f"shows:{show_id}:season:{season_id}:episodes:{page}:{limit}"
+        cached_data = await get_cache(cache_key)
+        
+        if cached_data and not user_id:
+            return cached_data
+            
+        # Verify show exists
+        show = await show_collection.find_one(
+            {"_id": ObjectId(show_id)},
+            {"title": 1}  # Only get title
+        )
+        
+        if not show:
+            raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
+            
+        # Verify season exists and belongs to show
+        season = await season_collection.find_one(
+            {"_id": ObjectId(season_id), "showId": ObjectId(show_id)},
+            {"seasonNumber": 1}  # Only get season number
+        )
+        
+        if not season:
+            raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
+            
+        # Calculate pagination
+        skip = (page - 1) * limit
+        
+        # Get episodes with pagination
+        episodes_cursor = episode_collection.find(
+            {"seasonId": ObjectId(season_id)}
+        ).sort("episodeNumber", 1).skip(skip).limit(limit)
+        
+        # Get total episode count for pagination
+        total_episodes = await episode_collection.count_documents({"seasonId": ObjectId(season_id)})
+        
+        # Process episodes
+        episodes = []
+        async for episode in episodes_cursor:
+            episode_dict = serialize_doc(episode)
+            episodes.append(episode_dict)
+            
+        result = {
+            "success": True,
+            "data": episodes,
+            "pagination": {
+                "total": total_episodes,
+                "page": page,
+                "pages": (total_episodes + limit - 1) // limit,  # Ceiling division
+                "hasMore": (skip + limit) < total_episodes
+            },
+            "season": {
+                "_id": str(season["_id"]),
+                "seasonNumber": season["seasonNumber"]
+            },
+            "show": {
+                "_id": str(show["_id"]),
+                "title": show["title"]
+            }
+        }
+        
+        # Get watch status if user_id provided
+        if user_id and episodes:
+            episode_ids = [ObjectId(ep["_id"]) for ep in episodes]
+            
+            watch_cursor = user_watch_collection.find({
+                "userId": user_id,
+                "contentType": "episode",
+                "contentId": {"$in": episode_ids}
+            })
+            
+            watch_status = {}
+            async for watch in watch_cursor:
+                watch_status[str(watch["contentId"])] = {
+                    "progress": watch.get("progress", 0),
+                    "completed": watch.get("completed", False),
+                    "lastWatched": watch.get("watchedAt")
+                }
+                
+            result["watchStatus"] = watch_status
+        else:
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 900)  # Cache for 15 minutes
+            
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_season_episodes: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
 async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
@@ -261,24 +350,11 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
         # Build response object
         episode_dict = serialize_doc(episode)
         
-        # Debug log to check links before securing
+        # Secure video URLs in links
         if "links" in episode_dict and episode_dict["links"]:
-            logger.info(f"Episode {episode_id} has {len(episode_dict['links'])} links before securing")
-            for i, link in enumerate(episode_dict["links"]):
-                logger.info(f"Link {i}: {link.get('name')} - URL exists: {'url' in link}")
+            for link in episode_dict["links"]:
                 if 'url' in link:
-                    # Secure video URLs in links
-                    original_url = link["url"]
-                    link["url"] = secure_video_url(original_url)
-                    logger.info(f"Secured URL: original length {len(original_url)} -> new length {len(link['url'])}")
-                else:
-                    logger.warning(f"Link {i} has no URL key")
-        else:
-            logger.warning(f"Episode {episode_id} has no links or empty links array")
-            # If no links found, add a default message
-            episode_dict["links"] = episode_dict.get("links", [])
-            if not episode_dict["links"]:
-                logger.warning("No links found for episode, check your database")
+                    link["url"] = secure_video_url(link["url"])
         
         episode_dict["seasonId"] = {
             "_id": str(season["_id"]),

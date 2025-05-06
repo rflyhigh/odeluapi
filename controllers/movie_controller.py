@@ -131,24 +131,11 @@ async def get_movie_by_id(movie_id: str, user_id: Optional[str] = None):
         movie_dict = serialize_doc(movie)
         movie_dict["type"] = "movie"
         
-        # Debug log to check links before securing
+        # Secure video URLs in links
         if "links" in movie_dict and movie_dict["links"]:
-            logger.info(f"Movie {movie_id} has {len(movie_dict['links'])} links before securing")
-            for i, link in enumerate(movie_dict["links"]):
-                logger.info(f"Link {i}: {link.get('name')} - URL exists: {'url' in link}")
+            for link in movie_dict["links"]:
                 if 'url' in link:
-                    # Secure video URLs in links
-                    original_url = link["url"]
-                    link["url"] = secure_video_url(original_url)
-                    logger.info(f"Secured URL: original length {len(original_url)} -> new length {len(link['url'])}")
-                else:
-                    logger.warning(f"Link {i} has no URL key")
-        else:
-            logger.warning(f"Movie {movie_id} has no links or empty links array")
-            # If no links found, add a default message
-            movie_dict["links"] = movie_dict.get("links", [])
-            if not movie_dict["links"]:
-                logger.warning("No links found for movie, check your database")
+                    link["url"] = secure_video_url(link["url"])
         
         # Get related movies based on tags (with projection)
         projection = {
