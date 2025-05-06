@@ -47,9 +47,24 @@ async def get_show_by_id(
     user_id: str = Depends(get_user_id)
 ):
     """
-    Get a show by ID with all seasons and episodes
+    Get a show by ID with all seasons but not all episodes
     """
     return await show_controller.get_show_by_id(show_id, user_id)
+
+@router.get("/{show_id}/season/{season_id}/episodes")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_season_episodes(
+    request: Request,
+    show_id: str = Path(..., description="The ID of the show"),
+    season_id: str = Path(..., description="The ID of the season"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+    user_id: str = Depends(get_user_id)
+):
+    """
+    Get paginated episodes for a specific season
+    """
+    return await show_controller.get_season_episodes(show_id, season_id, page, limit, user_id)
 
 @router.get("/episode/{episode_id}")
 @limiter.limit(RATE_LIMIT_DEFAULT)
