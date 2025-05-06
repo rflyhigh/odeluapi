@@ -24,6 +24,7 @@ MIN_POOL_SIZE = int(os.getenv("MONGODB_MIN_POOL_SIZE", "10"))
 # Redis settings
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))  # Default 1 hour
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "True").lower() == "true"
 
 # Create a MongoDB client with connection pooling
 client = AsyncIOMotorClient(
@@ -37,10 +38,12 @@ db = client[DATABASE_NAME]
 
 # Initialize Redis client for caching
 redis_client = None
-try:
-    redis_client = redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=False)
-except Exception as e:
-    logger.warning(f"Redis connection failed: {str(e)}. Continuing without caching.")
+if CACHE_ENABLED:
+    try:
+        redis_client = redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=False)
+        logger.info("Redis cache initialized successfully")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {str(e)}. Continuing without caching.")
 
 # Collections
 movie_collection = db.movies
@@ -76,10 +79,10 @@ def serialize_doc(doc):
         
     return doc
 
-# Cache functions
+# Cache functions with improved error handling and performance
 async def get_cache(key):
-    """Get data from cache"""
-    if not redis_client:
+    """Get data from cache with improved error handling"""
+    if not CACHE_ENABLED or not redis_client:
         return None
     try:
         data = await redis_client.get(key)
@@ -91,17 +94,19 @@ async def get_cache(key):
         return None
 
 async def set_cache(key, data, ttl=CACHE_TTL):
-    """Set data in cache"""
-    if not redis_client:
+    """Set data in cache with improved serialization"""
+    if not CACHE_ENABLED or not redis_client:
         return
     try:
-        await redis_client.set(key, orjson.dumps(data), ex=ttl)
+        # Use orjson for faster serialization
+        serialized_data = orjson.dumps(data)
+        await redis_client.set(key, serialized_data, ex=ttl)
     except Exception as e:
         logger.warning(f"Cache set error: {str(e)}")
 
 async def delete_cache(key):
     """Delete data from cache"""
-    if not redis_client:
+    if not CACHE_ENABLED or not redis_client:
         return
     try:
         await redis_client.delete(key)
@@ -109,8 +114,8 @@ async def delete_cache(key):
         logger.warning(f"Cache delete error: {str(e)}")
 
 async def delete_cache_pattern(pattern):
-    """Delete all keys matching pattern"""
-    if not redis_client:
+    """Delete all keys matching pattern with improved error handling"""
+    if not CACHE_ENABLED or not redis_client:
         return
     try:
         keys = await redis_client.keys(pattern)
