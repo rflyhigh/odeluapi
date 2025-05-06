@@ -434,6 +434,95 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error in get_episode_by_id: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+
+
+async def get_all_season_episodes(show_id: str, season_id: str, user_id: Optional[str] = None):
+    """Get all episodes for a specific season without pagination"""
+    try:
+        # Validate ObjectIds
+        if not ObjectId.is_valid(show_id) or not ObjectId.is_valid(season_id):
+            raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid ID format"})
+        
+        # Try to get from cache first
+        cache_key = f"shows:{show_id}:season:{season_id}:all-episodes"
+        cached_data = await get_cache(cache_key)
+        
+        if cached_data and not user_id:
+            return cached_data
+            
+        # Verify show exists
+        show = await show_collection.find_one(
+            {"_id": ObjectId(show_id)},
+            {"title": 1}  # Only get title
+        )
+        
+        if not show:
+            raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
+            
+        # Verify season exists and belongs to show
+        season = await season_collection.find_one(
+            {"_id": ObjectId(season_id), "showId": ObjectId(show_id)},
+            {"seasonNumber": 1}  # Only get season number
+        )
+        
+        if not season:
+            raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
+            
+        # Get all episodes without pagination
+        episodes_cursor = episode_collection.find(
+            {"seasonId": ObjectId(season_id)}
+        ).sort("episodeNumber", 1)
+        
+        # Process episodes
+        episodes = []
+        async for episode in episodes_cursor:
+            episode_dict = serialize_doc(episode)
+            episodes.append(episode_dict)
+            
+        result = {
+            "success": True,
+            "data": episodes,
+            "season": {
+                "_id": str(season["_id"]),
+                "seasonNumber": season["seasonNumber"]
+            },
+            "show": {
+                "_id": str(show["_id"]),
+                "title": show["title"]
+            }
+        }
+        
+        # Get watch status if user_id provided
+        if user_id and episodes:
+            episode_ids = [ObjectId(ep["_id"]) for ep in episodes]
+            
+            watch_cursor = user_watch_collection.find({
+                "userId": user_id,
+                "contentType": "episode",
+                "contentId": {"$in": episode_ids}
+            })
+            
+            watch_status = {}
+            async for watch in watch_cursor:
+                watch_status[str(watch["contentId"])] = {
+                    "progress": watch.get("progress", 0),
+                    "completed": watch.get("completed", False),
+                    "lastWatched": watch.get("watchedAt")
+                }
+                
+            result["watchStatus"] = watch_status
+        else:
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 900)  # Cache for 15 minutes
+            
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_all_season_episodes: {str(e)}")
+        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+      
       
 async def update_episode_watch_status(episode_id: str, user_id: str, progress: float = 0, completed: bool = False):
     try:
