@@ -94,3 +94,17 @@ async def update_episode_watch_status(
     # Use authenticated user ID if available, otherwise use cookie ID
     actual_user_id = current_user["_id"] if current_user else user_id
     return await show_controller.update_episode_watch_status(episode_id, actual_user_id, progress, completed)
+
+
+@router.get("/{show_id}/season/{season_id}/all-episodes")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_all_season_episodes(
+    request: Request,
+    show_id: str = Path(..., description="The ID of the show"),
+    season_id: str = Path(..., description="The ID of the season"),
+    user_id: str = Depends(get_user_id)
+):
+    """
+    Get all episodes for a specific season without pagination
+    """
+    return await show_controller.get_all_season_episodes(show_id, season_id, user_id)
