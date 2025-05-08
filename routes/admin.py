@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Path, Body, HTTPException, Request
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 
 from controllers import admin_controller
@@ -156,6 +156,20 @@ async def create_episode(
     Create a new episode for a season
     """
     return await admin_controller.create_episode(season_id, episode_data)
+
+# NEW: Batch Episode Creation Route
+@router.post("/seasons/{season_id}/episodes/batch")
+@limiter.limit(RATE_LIMIT_ADMIN) # Apply rate limiting
+async def batch_create_episodes(
+    request: Request,
+    season_id: str = Path(..., description="The ID of the season to add episodes to"),
+    episodes_data: List[Dict[str, Any]] = Body(..., description="List of episode data dictionaries")
+):
+    """
+    Create multiple new episodes for a season in a single request.
+    """
+    return await admin_controller.batch_create_episodes(season_id, episodes_data)
+
 
 @router.put("/episodes/{episode_id}")
 @limiter.limit(RATE_LIMIT_ADMIN)
