@@ -81,6 +81,75 @@ async def get_watch_history(user_id: str):
         logger.error(f"Error in get_watch_history: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
+
+async def get_recently_added(limit: int = 5):
+    try:
+        # Try to get from cache first
+        cache_key = f"recently_added:{limit}"
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
+        # Get recently added movies
+        recent_movies_cursor = movie_collection.find(
+            {}, 
+            {"title": 1, "image": 1, "createdAt": 1}
+        ).sort("createdAt", -1).limit(limit)
+        
+        recent_movies = []
+        async for movie in recent_movies_cursor:
+            movie_dict = serialize_doc(movie)
+            movie_dict["type"] = "movie"
+            recent_movies.append(movie_dict)
+            
+        # Get recently added episodes
+        recent_episodes_cursor = episode_collection.find(
+            {}, 
+            {"title": 1, "image": 1, "createdAt": 1, "seasonId": 1, "episodeNumber": 1}
+        ).sort("createdAt", -1).limit(limit)
+        
+        recent_episodes = []
+        async for episode in recent_episodes_cursor:
+            episode_dict = serialize_doc(episode)
+            
+            # Get season details
+            season = await season_collection.find_one(
+                {"_id": ObjectId(episode["seasonId"])},
+                {"seasonNumber": 1, "showId": 1}
+            )
+            
+            if season:
+                # Get show details
+                show = await show_collection.find_one(
+                    {"_id": ObjectId(season["showId"])},
+                    {"title": 1, "image": 1}
+                )
+                
+                if show:
+                    episode_dict["type"] = "episode"
+                    episode_dict["showId"] = str(season["showId"])
+                    episode_dict["showTitle"] = show["title"]
+                    episode_dict["showImage"] = show["image"]
+                    episode_dict["seasonNumber"] = season["seasonNumber"]
+                    recent_episodes.append(episode_dict)
+        
+        # Combine and sort by createdAt
+        recent_items = recent_movies + recent_episodes
+        recent_items.sort(key=lambda x: x["createdAt"], reverse=True)
+        
+        # Take only the most recent items
+        recent_items = recent_items[:limit]
+        
+        result = {"success": True, "data": recent_items}
+        
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_recently_added: {str(e)}")
+        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
 async def get_continue_watching(user_id: str):
     try:
         # Try to get from cache first
