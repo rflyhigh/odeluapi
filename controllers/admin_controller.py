@@ -1,4 +1,4 @@
-# admincontroler.py
+# admin_controller.py
 from fastapi import HTTPException, status, Depends
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
@@ -6,10 +6,11 @@ from pymongo import ASCENDING, DESCENDING
 import logging
 from datetime import datetime
 
+# Ensure these imports are correct based on your project structure
 from database import movie_collection, show_collection, season_collection, episode_collection, user_collection, watchlist_collection, user_watch_collection, serialize_doc
 from utils.auth import get_password_hash
-# Import secure_video_url but we won't use it in the admin get functions
-from utils.video_security import secure_video_url
+# Import secure_video_url but we won't use it in the admin fetch functions
+from utils.video_security import secure_video_url # Keep this import if other functions use it
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ async def delete_movie(movie_id: str):
         logger.error(f"Error in delete_movie: {str(e)}")
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
 
-# NEW: Admin function to get movie by ID without securing URLs
+# NEW: Get a single movie by ID for admin
 async def get_movie_by_id_admin(movie_id: str):
     try:
         # Validate ObjectId
@@ -97,7 +98,7 @@ async def get_movie_by_id_admin(movie_id: str):
         if not movie:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Movie not found"})
 
-        # Serialize and return the movie data (links are not secured here)
+        # Serialize and return the full document (including original links)
         return {"success": True, "data": serialize_doc(movie)}
     except HTTPException:
         raise
@@ -201,7 +202,7 @@ async def delete_show(show_id: str):
         logger.error(f"Error in delete_show: {str(e)}")
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
 
-# NEW: Admin function to get show by ID with seasons (without securing URLs)
+# NEW: Get a single show by ID for admin
 async def get_show_by_id_admin(show_id: str):
     try:
         # Validate ObjectId
@@ -214,18 +215,21 @@ async def get_show_by_id_admin(show_id: str):
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
 
-        # Get seasons for this show
+        # Get seasons for this show (full season data, not just IDs)
         seasons_cursor = season_collection.find({"showId": ObjectId(show_id)}).sort("seasonNumber", 1)
         seasons = []
         async for season in seasons_cursor:
             season_dict = serialize_doc(season)
-            # Include episode IDs in the season for admin view
-            season_dict["episodes"] = [str(ep_id) for ep_id in season.get("episodes", [])]
+            # Optionally fetch episode IDs for each season if needed in admin view
+            # For now, we'll just return the season details
             seasons.append(season_dict)
 
         # Add seasons to show
         show_dict = serialize_doc(show)
-        show_dict["seasons"] = seasons
+        show_dict["seasons"] = seasons # Include full season details
+
+        # Note: We are NOT fetching all episodes here to avoid massive payloads.
+        # The admin frontend will fetch episodes for a specific season separately.
 
         return {"success": True, "data": show_dict}
     except HTTPException:
@@ -251,7 +255,6 @@ async def create_season(show_id: str, season_data: Dict[str, Any]):
         season_data["showId"] = ObjectId(show_id)
         season_data["createdAt"] = datetime.now()
         season_data["updatedAt"] = datetime.now()
-        season_data["episodes"] = [] # Initialize episodes list
 
         # Insert into database
         result = await season_collection.insert_one(season_data)
@@ -340,7 +343,56 @@ async def delete_season(season_id: str):
         logger.error(f"Error in delete_season: {str(e)}")
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
 
-# NEW: Admin function to get season by ID (without securing URLs)
+async def get_all_seasons(show_id: Optional[str] = None, page: int = 1, limit: int = 20, search: str = ""):
+    try:
+        skip = (page - 1) * limit
+
+        # Build query
+        query = {}
+        if show_id:
+            # Validate ObjectId
+            if not ObjectId.is_valid(show_id):
+                raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid show ID format"})
+            query["showId"] = ObjectId(show_id)
+
+        if search:
+            query["title"] = {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}
+
+        # Execute query with pagination
+        cursor = season_collection.find(query).sort([("showId", ASCENDING), ("seasonNumber", ASCENDING)]).skip(skip).limit(limit)
+
+        # Convert to list and add show details
+        seasons = []
+        async for season in cursor:
+            season_dict = serialize_doc(season)
+            # Get show details
+            show = await show_collection.find_one({"_id": ObjectId(season["showId"])})
+            if show:
+                season_dict["showId"] = {
+                    "_id": str(show["_id"]),
+                    "title": show["title"]
+                }
+            seasons.append(season_dict)
+
+        # Get total count for pagination
+        total = await season_collection.count_documents(query)
+
+        return {
+            "success": True,
+            "data": seasons,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "pages": (total + limit - 1) // limit  # Ceiling division
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_all_seasons: {str(e)}")
+        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+# NEW: Get a single season by ID for admin
 async def get_season_by_id_admin(season_id: str):
     try:
         # Validate ObjectId
@@ -353,12 +405,22 @@ async def get_season_by_id_admin(season_id: str):
         if not season:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
 
-        # Serialize and return the season data
-        season_dict = serialize_doc(season)
-        # Include episode IDs in the season for admin view
-        season_dict["episodes"] = [str(ep_id) for ep_id in season.get("episodes", [])]
+        # Get show details for context
+        show = await show_collection.find_one({"_id": season["showId"]})
+        if show:
+            season_dict = serialize_doc(season)
+            season_dict["showId"] = {
+                "_id": str(show["_id"]),
+                "title": show["title"]
+            }
+            return {"success": True, "data": season_dict}
+        else:
+             # Handle case where show is missing (shouldn't happen if data is consistent)
+             season_dict = serialize_doc(season)
+             season_dict["showId"] = None # Or handle as an error
+             return {"success": True, "data": season_dict}
 
-        return {"success": True, "data": season_dict}
+
     except HTTPException:
         raise
     except Exception as e:
@@ -461,29 +523,7 @@ async def delete_episode(episode_id: str):
         logger.error(f"Error in delete_episode: {str(e)}")
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
 
-# NEW: Admin function to get episode by ID (without securing URLs)
-async def get_episode_by_id_admin(episode_id: str):
-    try:
-        # Validate ObjectId
-        if not ObjectId.is_valid(episode_id):
-            raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid episode ID format"})
-
-        # Find episode by ID
-        episode = await episode_collection.find_one({"_id": ObjectId(episode_id)})
-
-        if not episode:
-            raise HTTPException(status_code=404, detail={"success": False, "message": "Episode not found"})
-
-        # Serialize and return the episode data (links are not secured here)
-        return {"success": True, "data": serialize_doc(episode)}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in get_episode_by_id_admin: {str(e)}")
-        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
-
-
-# NEW: Batch Episode Creation
+# Batch Episode Creation
 async def batch_create_episodes(season_id: str, episodes_data: List[Dict[str, Any]]):
     try:
         # Validate Season ObjectId
@@ -541,7 +581,7 @@ async def batch_create_episodes(season_id: str, episodes_data: List[Dict[str, An
         if episode_ids_to_push:
             await season_collection.update_one(
                 {"_id": ObjectId(season_id)},
-                {"$push": {"episodes": {"$each": episode_ids_to_push}}} # Corrected line
+                {":markdown-math{single="true" encoded="push%22%3A%20%7B%22episodes%22%3A%20%7B%22"}each": episode_ids_to_push}}}
             )
 
         # Fetch the newly created episodes to return
@@ -560,55 +600,6 @@ async def batch_create_episodes(season_id: str, episodes_data: List[Dict[str, An
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
 
 
-async def get_all_seasons(show_id: Optional[str] = None, page: int = 1, limit: int = 20, search: str = ""):
-    try:
-        skip = (page - 1) * limit
-
-        # Build query
-        query = {}
-        if show_id:
-            # Validate ObjectId
-            if not ObjectId.is_valid(show_id):
-                raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid show ID format"})
-            query["showId"] = ObjectId(show_id)
-
-        if search:
-            query["title"] = {"$regex": search, "$options": "i"}
-
-        # Execute query with pagination
-        cursor = season_collection.find(query).sort([("showId", ASCENDING), ("seasonNumber", ASCENDING)]).skip(skip).limit(limit)
-
-        # Convert to list and add show details
-        seasons = []
-        async for season in cursor:
-            season_dict = serialize_doc(season)
-            # Get show details
-            show = await show_collection.find_one({"_id": ObjectId(season["showId"])})
-            if show:
-                season_dict["showId"] = {
-                    "_id": str(show["_id"]),
-                    "title": show["title"]
-                }
-            seasons.append(season_dict)
-
-        # Get total count for pagination
-        total = await season_collection.count_documents(query)
-
-        return {
-            "success": True,
-            "data": seasons,
-            "pagination": {
-                "total": total,
-                "page": page,
-                "pages": (total + limit - 1) // limit  # Ceiling division
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in get_all_seasons: {str(e)}")
-        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
-
 async def get_all_episodes(season_id: Optional[str] = None, page: int = 1, limit: int = 20, search: str = ""):
     try:
         skip = (page - 1) * limit
@@ -622,7 +613,7 @@ async def get_all_episodes(season_id: Optional[str] = None, page: int = 1, limit
             query["seasonId"] = ObjectId(season_id)
 
         if search:
-            query["title"] = {"$regex": search, "$options": "i"}
+            query["title"] = {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}
 
         # Execute query with pagination
         cursor = episode_collection.find(query).sort([("seasonId", ASCENDING), ("episodeNumber", ASCENDING)]).skip(skip).limit(limit)
@@ -664,6 +655,46 @@ async def get_all_episodes(season_id: Optional[str] = None, page: int = 1, limit
         logger.error(f"Error in get_all_episodes: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
+# NEW: Get a single episode by ID for admin
+async def get_episode_by_id_admin(episode_id: str):
+    try:
+        # Validate ObjectId
+        if not ObjectId.is_valid(episode_id):
+            raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid episode ID format"})
+
+        # Find episode by ID
+        episode = await episode_collection.find_one({"_id": ObjectId(episode_id)})
+
+        if not episode:
+            raise HTTPException(status_code=404, detail={"success": False, "message": "Episode not found"})
+
+        # Get season and show info for context
+        season = await season_collection.find_one({"_id": episode["seasonId"]})
+        show = None
+        if season:
+            show = await show_collection.find_one({"_id": season["showId"]})
+
+        episode_dict = serialize_doc(episode)
+
+        # Include season and show details for context in the admin view
+        episode_dict["seasonId"] = {
+            "_id": str(season["_id"]) if season else None,
+            "seasonNumber": season["seasonNumber"] if season else None,
+            "showId": {
+                "_id": str(show["_id"]) if show else None,
+                "title": show["title"] if show else "Unknown Show"
+            } if show else None
+        }
+
+        # Return the full episode document including original links
+        return {"success": True, "data": episode_dict}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_episode_by_id_admin: {str(e)}")
+        raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+
 # USER MANAGEMENT
 async def get_all_users(page: int = 1, limit: int = 20, search: str = ""):
     try:
@@ -673,9 +704,9 @@ async def get_all_users(page: int = 1, limit: int = 20, search: str = ""):
         query = {}
         if search:
             query["$or"] = [
-                {"username": {"$regex": search, "$options": "i"}},
-                {"email": {"$regex": search, "$options": "i"}},
-                {"name": {"$regex": search, "$options": "i"}}
+                {"username": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}},
+                {"email": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}},
+                {"name": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}}
             ]
 
         # Execute query with pagination
@@ -749,6 +780,7 @@ async def update_user(user_id: str, user_data: Dict[str, Any]):
             {"$set": user_data}
         )
 
+
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail={"success": False, "message": "User not found"})
 
@@ -761,7 +793,6 @@ async def update_user(user_id: str, user_data: Dict[str, Any]):
             del user_dict["hashed_password"]
 
         return {"success": True, "data": user_dict}
-# admincontroler.py (continued)
     except HTTPException:
         raise
     except Exception as e:
@@ -792,3 +823,4 @@ async def delete_user(user_id: str):
     except Exception as e:
         logger.error(f"Error in delete_user: {str(e)}")
         raise HTTPException(status_code=400, detail={"success": False, "message": str(e)})
+
