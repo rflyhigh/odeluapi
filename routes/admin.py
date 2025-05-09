@@ -1,3 +1,4 @@
+# admin.py
 from fastapi import APIRouter, Depends, Query, Path, Body, HTTPException, Request
 from typing import Optional, Dict, Any, List
 import logging
@@ -49,6 +50,19 @@ async def delete_movie(
     """
     return await admin_controller.delete_movie(movie_id)
 
+# NEW: Admin endpoint to get movie by ID
+@router.get("/movies/{movie_id}/admin")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_movie_by_id_admin(
+    request: Request,
+    movie_id: str = Path(..., description="The ID of the movie to get (Admin)")
+):
+    """
+    Get a movie by ID for admin purposes (includes unsecured links)
+    """
+    return await admin_controller.get_movie_by_id_admin(movie_id)
+
+
 # Show routes
 @router.post("/shows")
 @limiter.limit(RATE_LIMIT_ADMIN)
@@ -80,6 +94,19 @@ async def delete_show(
     Delete a show and all its seasons and episodes
     """
     return await admin_controller.delete_show(show_id)
+
+# NEW: Admin endpoint to get show by ID
+@router.get("/shows/{show_id}/admin")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_show_by_id_admin(
+    request: Request,
+    show_id: str = Path(..., description="The ID of the show to get (Admin)")
+):
+    """
+    Get a show by ID for admin purposes (includes seasons and episode IDs)
+    """
+    return await admin_controller.get_show_by_id_admin(show_id)
+
 
 @router.get("/seasons")
 @limiter.limit(RATE_LIMIT_ADMIN)
@@ -129,6 +156,19 @@ async def delete_season(
     Delete a season and all its episodes
     """
     return await admin_controller.delete_season(season_id)
+
+# NEW: Admin endpoint to get season by ID
+@router.get("/seasons/{season_id}/admin")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_season_by_id_admin(
+    request: Request,
+    season_id: str = Path(..., description="The ID of the season to get (Admin)")
+):
+    """
+    Get a season by ID for admin purposes (includes episode IDs)
+    """
+    return await admin_controller.get_season_by_id_admin(season_id)
+
 
 # Episode routes
 @router.get("/episodes")
@@ -194,6 +234,19 @@ async def delete_episode(
     """
     return await admin_controller.delete_episode(episode_id)
 
+# NEW: Admin endpoint to get episode by ID
+@router.get("/episodes/{episode_id}/admin")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_episode_by_id_admin(
+    request: Request,
+    episode_id: str = Path(..., description="The ID of the episode to get (Admin)")
+):
+    """
+    Get an episode by ID for admin purposes (includes unsecured links)
+    """
+    return await admin_controller.get_episode_by_id_admin(episode_id)
+
+
 # User management routes
 @router.get("/users")
 @limiter.limit(RATE_LIMIT_ADMIN)
@@ -241,3 +294,4 @@ async def delete_user(
     Delete a user
     """
     return await admin_controller.delete_user(user_id)
+
