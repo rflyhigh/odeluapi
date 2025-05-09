@@ -37,6 +37,19 @@ async def get_continue_watching(request: Request, current_user = Depends(get_cur
     user_id = current_user["_id"]
     return await user_controller.get_continue_watching(user_id)
 
+
+@router.get("/recently-added")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_recently_added_content(
+    request: Request,
+    limit: int = Query(5, ge=1, le=10),
+    user_id: str = Depends(get_user_id)
+):
+    """
+    Get recently added content (movies and episodes)
+    """
+    return await user_controller.get_recently_added(limit)
+
 @router.get("/me")
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_user_profile(request: Request, current_user = Depends(get_current_user_optional)):
