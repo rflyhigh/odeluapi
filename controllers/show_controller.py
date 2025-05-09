@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None, 
                         limit: int = 20, page: int = 1):
     try:
+        # Try to get from cache first
         cache_key = f"shows:list:{tag or 'all'}:{search or 'none'}:{page}:{limit}"
         cached_data = await get_cache(cache_key)
         if cached_data:
@@ -19,6 +20,7 @@ async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None,
             
         skip = (page - 1) * limit
         
+        # Build query
         query = {}
         if tag:
             query["tags"] = tag
@@ -26,6 +28,7 @@ async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None,
         if search:
             query["title"] = {"$regex": search, "$options": "i"}
         
+        # Define projection to limit fields returned
         projection = {
             "title": 1, 
             "image": 1, 
@@ -37,14 +40,17 @@ async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None,
             "createdAt": 1
         }
         
+        # Execute query with pagination
         cursor = show_collection.find(query, projection).sort("createdAt", DESCENDING).skip(skip).limit(limit)
         
+        # Convert to list and add type field
         shows = []
         async for show in cursor:
             show_dict = serialize_doc(show)
-            show_dict["type"] = "show"
+            show_dict["type"] = "show"  # Add type field
             shows.append(show_dict)
         
+        # Get total count for pagination
         total = await show_collection.count_documents(query)
         
         result = {
@@ -53,11 +59,12 @@ async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None,
             "pagination": {
                 "total": total,
                 "page": page,
-                "pages": (total + limit - 1) // limit
+                "pages": (total + limit - 1) // limit  # Ceiling division
             }
         }
         
-        await set_cache(cache_key, result, 300)
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
         
         return result
     except Exception as e:
@@ -66,11 +73,13 @@ async def get_all_shows(tag: Optional[str] = None, search: Optional[str] = None,
 
 async def get_featured_shows():
     try:
+        # Try to get from cache first
         cache_key = "shows:featured"
         cached_data = await get_cache(cache_key)
         if cached_data:
             return cached_data
             
+        # Find featured shows with projection
         projection = {
             "title": 1, 
             "image": 1, 
@@ -84,15 +93,17 @@ async def get_featured_shows():
         
         cursor = show_collection.find({"featured": True}, projection).limit(10)
         
+        # Convert to list and add type field
         featured_shows = []
         async for show in cursor:
             show_dict = serialize_doc(show)
-            show_dict["type"] = "show"
+            show_dict["type"] = "show"  # Add type field
             featured_shows.append(show_dict)
         
         result = {"success": True, "data": featured_shows}
         
-        await set_cache(cache_key, result, 600)
+        # Cache the result
+        await set_cache(cache_key, result, 600)  # Cache for 10 minutes
         
         return result
     except Exception as e:
@@ -101,35 +112,43 @@ async def get_featured_shows():
     
 async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
     try:
+        # Validate ObjectId
         if not ObjectId.is_valid(show_id):
             raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid show ID format"})
         
+        # Try to get from cache first (without watch history)
         cache_key = f"shows:detail:{show_id}"
         cached_data = await get_cache(cache_key)
         
         if cached_data and not user_id:
             return cached_data
             
+        # Find show by ID
         show = await show_collection.find_one({"_id": ObjectId(show_id)})
         
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
         
+        # Get seasons for this show
         seasons_cursor = season_collection.find({"showId": ObjectId(show_id)}).sort("seasonNumber", 1)
         seasons = []
         async for season in seasons_cursor:
             season_dict = serialize_doc(season)
             
+            # Only include essential season data, not all episodes
             season_dict["episodeCount"] = len(season.get("episodes", []))
+            # Remove the full episodes array to reduce payload size
             if "episodes" in season_dict:
                 del season_dict["episodes"]
             
             seasons.append(season_dict)
         
+        # Add seasons to show
         show_dict = serialize_doc(show)
         show_dict["seasons"] = seasons
-        show_dict["type"] = "show"
+        show_dict["type"] = "show"  # Add type field
         
+        # Get related shows based on tags with projection
         projection = {
             "title": 1, 
             "image": 1, 
@@ -143,10 +162,11 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
             "tags": {"$in": show.get("tags", [])}
         }, projection).limit(6)
         
+        # Convert to list and add type field
         related_shows = []
         async for related in related_cursor:
             related_dict = serialize_doc(related)
-            related_dict["type"] = "show"
+            related_dict["type"] = "show"  # Add type field
             related_shows.append(related_dict)
         
         result = {
@@ -156,18 +176,22 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
             "watchHistory": []
         }
         
+        # Get user watch history if user_id provided
         if user_id:
+            # Get all episode IDs from the show's seasons
             season_ids = [ObjectId(season["_id"]) for season in seasons]
             
+            # Find episodes for the first season only to avoid loading everything
             if season_ids:
                 first_season_episodes = await episode_collection.find(
                     {"seasonId": season_ids[0]},
-                    {"_id": 1}
+                    {"_id": 1}  # Only get IDs
                 ).to_list(length=None)
                 
                 first_season_episode_ids = [ep["_id"] for ep in first_season_episodes]
                 
                 if first_season_episode_ids:
+                    # Get watch status for first season episodes
                     watch_cursor = user_watch_collection.find({
                         "userId": user_id,
                         "contentType": "episode",
@@ -185,7 +209,8 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
                     
                     result["watchHistory"] = watch_history
         else:
-            await set_cache(cache_key, result, 1800)
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 1800)  # Cache for 30 minutes
         
         return result
     except HTTPException:
@@ -195,40 +220,49 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
 async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit: int = 10, user_id: Optional[str] = None):
+    """Get paginated episodes for a specific season"""
     try:
+        # Validate ObjectIds
         if not ObjectId.is_valid(show_id) or not ObjectId.is_valid(season_id):
             raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid ID format"})
         
+        # Try to get from cache first
         cache_key = f"shows:{show_id}:season:{season_id}:episodes:{page}:{limit}"
         cached_data = await get_cache(cache_key)
         
         if cached_data and not user_id:
             return cached_data
             
+        # Verify show exists
         show = await show_collection.find_one(
             {"_id": ObjectId(show_id)},
-            {"title": 1}
+            {"title": 1}  # Only get title
         )
         
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
             
+        # Verify season exists and belongs to show
         season = await season_collection.find_one(
             {"_id": ObjectId(season_id), "showId": ObjectId(show_id)},
-            {"seasonNumber": 1}
+            {"seasonNumber": 1}  # Only get season number
         )
         
         if not season:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
             
+        # Calculate pagination
         skip = (page - 1) * limit
         
+        # Get episodes with pagination
         episodes_cursor = episode_collection.find(
             {"seasonId": ObjectId(season_id)}
         ).sort("episodeNumber", 1).skip(skip).limit(limit)
         
+        # Get total episode count for pagination
         total_episodes = await episode_collection.count_documents({"seasonId": ObjectId(season_id)})
         
+        # Process episodes
         episodes = []
         async for episode in episodes_cursor:
             episode_dict = serialize_doc(episode)
@@ -240,7 +274,7 @@ async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit
             "pagination": {
                 "total": total_episodes,
                 "page": page,
-                "pages": (total_episodes + limit - 1) // limit,
+                "pages": (total_episodes + limit - 1) // limit,  # Ceiling division
                 "hasMore": (skip + limit) < total_episodes
             },
             "season": {
@@ -253,6 +287,7 @@ async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit
             }
         }
         
+        # Get watch status if user_id provided
         if user_id and episodes:
             episode_ids = [ObjectId(ep["_id"]) for ep in episodes]
             
@@ -272,7 +307,8 @@ async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit
                 
             result["watchStatus"] = watch_status
         else:
-            await set_cache(cache_key, result, 900)
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 900)  # Cache for 15 minutes
             
         return result
     except HTTPException:
@@ -283,31 +319,38 @@ async def get_season_episodes(show_id: str, season_id: str, page: int = 1, limit
 
 async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
     try:
+        # Validate ObjectId
         if not ObjectId.is_valid(episode_id):
             raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid episode ID format"})
         
+        # Try to get from cache first (without watch status)
         cache_key = f"episodes:detail:{episode_id}"
         cached_data = await get_cache(cache_key)
         
         if cached_data and not user_id:
             return cached_data
             
+        # Find episode by ID
         episode = await episode_collection.find_one({"_id": ObjectId(episode_id)})
         
         if not episode:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Episode not found"})
         
+        # Get season info
         season = await season_collection.find_one({"_id": episode["seasonId"]})
         if not season:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
         
+        # Get show info with projection
         show_projection = {"title": 1, "image": 1}
         show = await show_collection.find_one({"_id": season["showId"]}, show_projection)
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
         
+        # Build response object
         episode_dict = serialize_doc(episode)
         
+        # Secure video URLs in links
         if "links" in episode_dict and episode_dict["links"]:
             for link in episode_dict["links"]:
                 if 'url' in link:
@@ -323,16 +366,18 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
             },
             "seasonNumber": season["seasonNumber"]
         }
-        episode_dict["type"] = "episode"
+        episode_dict["type"] = "episode"  # Add type field
         
+        # Get next episode if available
         next_episode = await episode_collection.find_one(
             {
                 "seasonId": episode["seasonId"],
                 "episodeNumber": episode["episodeNumber"] + 1
             },
-            {"_id": 1}
+            {"_id": 1}  # Only get the ID
         )
         
+        # If no next episode in current season, check for next season's first episode
         next_season_episode = None
         if not next_episode:
             next_season = await season_collection.find_one(
@@ -340,7 +385,7 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
                     "showId": season["showId"],
                     "seasonNumber": season["seasonNumber"] + 1
                 },
-                {"_id": 1}
+                {"_id": 1}  # Only get the ID
             )
             
             if next_season:
@@ -349,7 +394,7 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
                         "seasonId": next_season["_id"],
                         "episodeNumber": 1
                     },
-                    {"_id": 1}
+                    {"_id": 1}  # Only get the ID
                 )
         
         next_info = None
@@ -365,6 +410,7 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
             "next": next_info
         }
         
+        # Get user watch status if user_id provided
         if user_id:
             watch_doc = await user_watch_collection.find_one({
                 "userId": user_id,
@@ -379,7 +425,8 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
                     "lastWatched": watch_doc.get("watchedAt")
                 }
         else:
-            await set_cache(cache_key, result, 1800)
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 1800)  # Cache for 30 minutes
         
         return result
     except HTTPException:
@@ -388,37 +435,46 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
         logger.error(f"Error in get_episode_by_id: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
+
+
 async def get_all_season_episodes(show_id: str, season_id: str, user_id: Optional[str] = None):
+    """Get all episodes for a specific season without pagination"""
     try:
+        # Validate ObjectIds
         if not ObjectId.is_valid(show_id) or not ObjectId.is_valid(season_id):
             raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid ID format"})
         
+        # Try to get from cache first
         cache_key = f"shows:{show_id}:season:{season_id}:all-episodes"
         cached_data = await get_cache(cache_key)
         
         if cached_data and not user_id:
             return cached_data
             
+        # Verify show exists
         show = await show_collection.find_one(
             {"_id": ObjectId(show_id)},
-            {"title": 1}
+            {"title": 1}  # Only get title
         )
         
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
             
+        # Verify season exists and belongs to show
         season = await season_collection.find_one(
             {"_id": ObjectId(season_id), "showId": ObjectId(show_id)},
-            {"seasonNumber": 1}
+            {"seasonNumber": 1}  # Only get season number
         )
         
         if not season:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Season not found"})
             
+        # Get all episodes without pagination
         episodes_cursor = episode_collection.find(
             {"seasonId": ObjectId(season_id)}
         ).sort("episodeNumber", 1)
         
+        # Process episodes
         episodes = []
         async for episode in episodes_cursor:
             episode_dict = serialize_doc(episode)
@@ -437,6 +493,7 @@ async def get_all_season_episodes(show_id: str, season_id: str, user_id: Optiona
             }
         }
         
+        # Get watch status if user_id provided
         if user_id and episodes:
             episode_ids = [ObjectId(ep["_id"]) for ep in episodes]
             
@@ -456,7 +513,8 @@ async def get_all_season_episodes(show_id: str, season_id: str, user_id: Optiona
                 
             result["watchStatus"] = watch_status
         else:
-            await set_cache(cache_key, result, 900)
+            # Cache the result (only if no user-specific data)
+            await set_cache(cache_key, result, 900)  # Cache for 15 minutes
             
         return result
     except HTTPException:
@@ -465,15 +523,19 @@ async def get_all_season_episodes(show_id: str, season_id: str, user_id: Optiona
         logger.error(f"Error in get_all_season_episodes: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
       
+      
 async def update_episode_watch_status(episode_id: str, user_id: str, progress: float = 0, completed: bool = False):
     try:
+        # Validate ObjectId
         if not ObjectId.is_valid(episode_id):
             raise HTTPException(status_code=400, detail={"success": False, "message": "Invalid episode ID format"})
         
+        # Check if episode exists
         episode = await episode_collection.find_one({"_id": ObjectId(episode_id)})
         if not episode:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Episode not found"})
         
+        # Update or create watch status
         from datetime import datetime
         result = await user_watch_collection.update_one(
             {
@@ -491,12 +553,14 @@ async def update_episode_watch_status(episode_id: str, user_id: str, progress: f
             upsert=True
         )
         
+        # Get the updated document
         watch_status = await user_watch_collection.find_one({
             "userId": user_id,
             "contentType": "episode",
             "contentId": ObjectId(episode_id)
         })
         
+        # Clear user-related caches
         await delete_cache_pattern(f"user:{user_id}:*")
         
         return {
