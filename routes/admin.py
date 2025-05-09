@@ -1,9 +1,9 @@
-# admin.py
+# admin_router.py
 from fastapi import APIRouter, Depends, Query, Path, Body, HTTPException, Request
 from typing import Optional, Dict, Any, List
 import logging
 
-from controllers import admin_controller
+from controllers import admin_controller # Ensure this import is correct
 from middleware.api_auth import verify_api_key
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -50,16 +50,17 @@ async def delete_movie(
     """
     return await admin_controller.delete_movie(movie_id)
 
-# NEW: Admin endpoint to get movie by ID
-@router.get("/movies/{movie_id}/admin")
+# NEW: Get a single movie by ID for admin
+@router.get("/movies/{movie_id}")
 @limiter.limit(RATE_LIMIT_ADMIN)
 async def get_movie_by_id_admin(
     request: Request,
-    movie_id: str = Path(..., description="The ID of the movie to get (Admin)")
+    movie_id: str = Path(..., description="The ID of the movie to get")
 ):
     """
-    Get a movie by ID for admin purposes (includes unsecured links)
+    Get a movie by ID (Admin endpoint - returns full data)
     """
+    # This calls the new controller function we added
     return await admin_controller.get_movie_by_id_admin(movie_id)
 
 
@@ -95,16 +96,17 @@ async def delete_show(
     """
     return await admin_controller.delete_show(show_id)
 
-# NEW: Admin endpoint to get show by ID
-@router.get("/shows/{show_id}/admin")
+# NEW: Get a single show by ID for admin
+@router.get("/shows/{show_id}")
 @limiter.limit(RATE_LIMIT_ADMIN)
 async def get_show_by_id_admin(
     request: Request,
-    show_id: str = Path(..., description="The ID of the show to get (Admin)")
+    show_id: str = Path(..., description="The ID of the show to get")
 ):
     """
-    Get a show by ID for admin purposes (includes seasons and episode IDs)
+    Get a show by ID (Admin endpoint - returns full data including seasons/episode IDs)
     """
+    # This calls the new controller function we added
     return await admin_controller.get_show_by_id_admin(show_id)
 
 
@@ -157,16 +159,17 @@ async def delete_season(
     """
     return await admin_controller.delete_season(season_id)
 
-# NEW: Admin endpoint to get season by ID
-@router.get("/seasons/{season_id}/admin")
+# NEW: Get a single season by ID for admin
+@router.get("/seasons/{season_id}")
 @limiter.limit(RATE_LIMIT_ADMIN)
 async def get_season_by_id_admin(
     request: Request,
-    season_id: str = Path(..., description="The ID of the season to get (Admin)")
+    season_id: str = Path(..., description="The ID of the season to get")
 ):
     """
-    Get a season by ID for admin purposes (includes episode IDs)
+    Get a season by ID (Admin endpoint - returns full data including show info)
     """
+    # This calls the new controller function we added
     return await admin_controller.get_season_by_id_admin(season_id)
 
 
@@ -197,7 +200,7 @@ async def create_episode(
     """
     return await admin_controller.create_episode(season_id, episode_data)
 
-# NEW: Batch Episode Creation Route
+# Batch Episode Creation Route
 @router.post("/seasons/{season_id}/episodes/batch")
 @limiter.limit(RATE_LIMIT_ADMIN) # Apply rate limiting
 async def batch_create_episodes(
@@ -234,16 +237,17 @@ async def delete_episode(
     """
     return await admin_controller.delete_episode(episode_id)
 
-# NEW: Admin endpoint to get episode by ID
-@router.get("/episodes/{episode_id}/admin")
+# NEW: Get a single episode by ID for admin
+@router.get("/episodes/{episode_id}")
 @limiter.limit(RATE_LIMIT_ADMIN)
 async def get_episode_by_id_admin(
     request: Request,
-    episode_id: str = Path(..., description="The ID of the episode to get (Admin)")
+    episode_id: str = Path(..., description="The ID of the episode to get")
 ):
     """
-    Get an episode by ID for admin purposes (includes unsecured links)
+    Get an episode by ID (Admin endpoint - returns full data)
     """
+    # This calls the new controller function we added
     return await admin_controller.get_episode_by_id_admin(episode_id)
 
 
@@ -270,6 +274,7 @@ async def get_user_by_id(
     """
     Get a user by ID
     """
+    # This calls the existing controller function, which is fine for admin
     return await admin_controller.get_user_by_id(user_id)
 
 @router.put("/users/{user_id}")
@@ -282,6 +287,7 @@ async def update_user(
     """
     Update an existing user
     """
+    # This calls the existing controller function
     return await admin_controller.update_user(user_id, user_data)
 
 @router.delete("/users/{user_id}")
@@ -293,5 +299,5 @@ async def delete_user(
     """
     Delete a user
     """
+    # This calls the existing controller function
     return await admin_controller.delete_user(user_id)
-
