@@ -356,7 +356,7 @@ async def get_all_seasons(show_id: Optional[str] = None, page: int = 1, limit: i
             query["showId"] = ObjectId(show_id)
 
         if search:
-            query["title"] = {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}
+            query["title"] = {"$regex": search, "$options": "i"}
 
         # Execute query with pagination
         cursor = season_collection.find(query).sort([("showId", ASCENDING), ("seasonNumber", ASCENDING)]).skip(skip).limit(limit)
@@ -581,7 +581,7 @@ async def batch_create_episodes(season_id: str, episodes_data: List[Dict[str, An
         if episode_ids_to_push:
             await season_collection.update_one(
                 {"_id": ObjectId(season_id)},
-                {":markdown-math{single="true" encoded="push%22%3A%20%7B%22episodes%22%3A%20%7B%22"}each": episode_ids_to_push}}}
+                {"$push": {"episodes": {"$each": episode_ids_to_push}}}
             )
 
         # Fetch the newly created episodes to return
@@ -613,7 +613,7 @@ async def get_all_episodes(season_id: Optional[str] = None, page: int = 1, limit
             query["seasonId"] = ObjectId(season_id)
 
         if search:
-            query["title"] = {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}
+            query["title"] = {"$regex": search, "$options": "i"}
 
         # Execute query with pagination
         cursor = episode_collection.find(query).sort([("seasonId", ASCENDING), ("episodeNumber", ASCENDING)]).skip(skip).limit(limit)
@@ -694,7 +694,6 @@ async def get_episode_by_id_admin(episode_id: str):
         logger.error(f"Error in get_episode_by_id_admin: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
 
-
 # USER MANAGEMENT
 async def get_all_users(page: int = 1, limit: int = 20, search: str = ""):
     try:
@@ -704,9 +703,9 @@ async def get_all_users(page: int = 1, limit: int = 20, search: str = ""):
         query = {}
         if search:
             query["$or"] = [
-                {"username": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}},
-                {"email": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}},
-                {"name": {":markdown-math{single="true" encoded="regex%22%3A%20search%2C%20%22"}options": "i"}}
+                {"username": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": search, "$options": "i"}}
             ]
 
         # Execute query with pagination
