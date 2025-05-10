@@ -60,3 +60,14 @@ async def check_watchlist(
     """
     user_id = current_user["_id"]
     return await watchlist_controller.is_in_watchlist(user_id, content_type, content_id)
+
+@router.get("/user/{user_id}")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_user_watchlist(
+    request: Request,
+    user_id: str = Path(..., description="ID of the user to get watchlist for")
+):
+    """
+    Get watchlist for a specific user (for public profile viewing)
+    """
+    return await watchlist_controller.get_user_watchlist(user_id)
