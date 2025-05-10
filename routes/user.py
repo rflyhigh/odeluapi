@@ -60,3 +60,21 @@ async def get_user_profile(request: Request, current_user = Depends(get_current_
         return await user_controller.get_user_by_token(current_user)
     else:
         return {"success": False, "message": "Not authenticated"}
+
+@router.delete("/history")
+@limiter.limit("10/minute")
+async def delete_user_watch_history(request: Request, current_user = Depends(get_current_user)):
+    """
+    Delete user's watch history
+    """
+    user_id = current_user["_id"]
+    return await user_controller.delete_watch_history(user_id)
+
+@router.delete("/account")
+@limiter.limit("5/minute")
+async def delete_user_account(request: Request, current_user = Depends(get_current_user)):
+    """
+    Delete user account and all associated data
+    """
+    user_id = current_user["_id"]
+    return await user_controller.delete_account(user_id)
