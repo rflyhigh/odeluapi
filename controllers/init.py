@@ -1,2 +1,2 @@
 # Import controllers for easier access
-from controllers import auth_controller, movie_controller, show_controller, user_controller, watchlist_controller, search_controller, admin_controller, comment_controller
+from controllers import auth_controller, movie_controller, show_controller, user_controller, watchlist_controller, search_controller, admin_controller, comment_controller, report_controller

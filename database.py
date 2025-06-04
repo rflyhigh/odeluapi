@@ -54,6 +54,7 @@ user_watch_collection = db.user_watches
 user_collection = db.users
 watchlist_collection = db.watchlists
 comment_collection = db.comments
+report_collection = db.reports
 
 # Helper function to convert string ID to ObjectId
 def to_object_id(id_str):
@@ -167,6 +168,10 @@ async def create_indexes():
         await comment_collection.create_index([("user_id", ASCENDING)])
         await comment_collection.create_index([("parent_id", ASCENDING)])
         await comment_collection.create_index([("createdAt", DESCENDING)])
+        
+        # Report indexes
+        await report_collection.create_index([("userId", ASCENDING)])
+        await report_collection.create_index([("createdAt", DESCENDING)])
         
         logger.info("Database indexes created successfully")
     except Exception as e:
