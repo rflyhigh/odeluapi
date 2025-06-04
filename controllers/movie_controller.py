@@ -4,8 +4,10 @@ from bson import ObjectId
 from pymongo import DESCENDING
 import logging
 import re
+import asyncio
+from datetime import datetime
 
-from database import movie_collection, user_watch_collection, serialize_doc, get_cache, set_cache, delete_cache, delete_cache_pattern
+from database import movie_collection, user_watch_collection, content_view_collection, serialize_doc, get_cache, set_cache, delete_cache, delete_cache_pattern
 from utils.video_security import secure_video_url
 from utils.time_converter import convert_duration_to_minutes
 
@@ -134,6 +136,10 @@ async def get_movie_by_id(movie_id: str, user_id: Optional[str] = None):
         
         if not movie:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Movie not found"})
+        
+        # Track view asynchronously (don't wait for result)
+        if user_id:
+            asyncio.create_task(track_movie_view(movie_id, user_id))
         
         # Add type field
         movie_dict = serialize_doc(movie)
@@ -345,3 +351,28 @@ async def update_watch_status(movie_id: str, user_id: str, progress: float = 0, 
     except Exception as e:
         logger.error(f"Error in update_watch_status: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+async def track_movie_view(movie_id: str, user_id: str):
+    """
+    Track a movie view asynchronously
+    """
+    try:
+        # Create view record
+        view_data = {
+            "contentId": ObjectId(movie_id),
+            "contentType": "movie",
+            "userId": user_id,
+            "timestamp": datetime.now()
+        }
+            
+        # Insert view record
+        await content_view_collection.insert_one(view_data)
+        
+        # Update view count in movie document
+        await movie_collection.update_one(
+            {"_id": ObjectId(movie_id)},
+            {"$inc": {"viewCount": 1}}
+        )
+    except Exception as e:
+        logger.error(f"Error tracking movie view: {str(e)}")
+        # Don't raise exception as this is a background task

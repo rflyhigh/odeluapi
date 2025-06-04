@@ -4,8 +4,10 @@ from bson import ObjectId
 from pymongo import DESCENDING
 import logging
 import re
+import asyncio
+from datetime import datetime
 
-from database import show_collection, season_collection, episode_collection, user_watch_collection, serialize_doc, get_cache, set_cache, delete_cache, delete_cache_pattern
+from database import show_collection, season_collection, episode_collection, user_watch_collection, content_view_collection, serialize_doc, get_cache, set_cache, delete_cache, delete_cache_pattern
 from utils.video_security import secure_video_url
 from utils.time_converter import convert_duration_to_minutes
 
@@ -136,6 +138,10 @@ async def get_show_by_id(show_id: str, user_id: Optional[str] = None):
         
         if not show:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Show not found"})
+        
+        # Track view asynchronously (don't wait for result)
+        if user_id:
+            asyncio.create_task(track_show_view(show_id, user_id))
         
         # Get seasons for this show
         seasons_cursor = season_collection.find({"showId": ObjectId(show_id)}).sort("seasonNumber", 1)
@@ -440,6 +446,10 @@ async def get_episode_by_id(episode_id: str, user_id: Optional[str] = None):
         if not episode:
             raise HTTPException(status_code=404, detail={"success": False, "message": "Episode not found"})
         
+        # Track view asynchronously (don't wait for result)
+        if user_id:
+            asyncio.create_task(track_episode_view(episode_id, user_id))
+        
         # Get season info
         season = await season_collection.find_one({"_id": episode["seasonId"]})
         if not season:
@@ -691,3 +701,53 @@ async def update_episode_watch_status(episode_id: str, user_id: str, progress: f
     except Exception as e:
         logger.error(f"Error in update_episode_watch_status: {str(e)}")
         raise HTTPException(status_code=500, detail={"success": False, "message": str(e)})
+
+async def track_show_view(show_id: str, user_id: str):
+    """
+    Track a show view asynchronously
+    """
+    try:
+        # Create view record
+        view_data = {
+            "contentId": ObjectId(show_id),
+            "contentType": "show",
+            "userId": user_id,
+            "timestamp": datetime.now()
+        }
+            
+        # Insert view record
+        await content_view_collection.insert_one(view_data)
+        
+        # Update view count in show document
+        await show_collection.update_one(
+            {"_id": ObjectId(show_id)},
+            {"$inc": {"viewCount": 1}}
+        )
+    except Exception as e:
+        logger.error(f"Error tracking show view: {str(e)}")
+        # Don't raise exception as this is a background task
+
+async def track_episode_view(episode_id: str, user_id: str):
+    """
+    Track an episode view asynchronously
+    """
+    try:
+        # Create view record
+        view_data = {
+            "contentId": ObjectId(episode_id),
+            "contentType": "episode",
+            "userId": user_id,
+            "timestamp": datetime.now()
+        }
+            
+        # Insert view record
+        await content_view_collection.insert_one(view_data)
+        
+        # Update view count in episode document
+        await episode_collection.update_one(
+            {"_id": ObjectId(episode_id)},
+            {"$inc": {"viewCount": 1}}
+        )
+    except Exception as e:
+        logger.error(f"Error tracking episode view: {str(e)}")
+        # Don't raise exception as this is a background task

@@ -16,7 +16,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
-from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports
+from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
 
 # Configure logging
@@ -129,6 +129,7 @@ app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(comments.router, prefix="/api/comments", tags=["comments"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(popularity.router, prefix="/api/popular", tags=["popular"])
 
 # Root endpoint
 @app.get("/", tags=["root"])
@@ -145,7 +146,8 @@ async def root(request: Request):
             "/api/watchlist",
             "/api/search",
             "/api/comments",
-            "/api/reports"
+            "/api/reports",
+            "/api/popular"
         ]
     }
 
