@@ -129,7 +129,7 @@ app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(comments.router, prefix="/api/comments", tags=["comments"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
-app.include_router(popularity.router, prefix="/api/popular", tags=["popular"])
+app.include_router(popularity.router, prefix="/api/popularity", tags=["popularity"])
 
 # Root endpoint
 @app.get("/", tags=["root"])
@@ -147,7 +147,7 @@ async def root(request: Request):
             "/api/search",
             "/api/comments",
             "/api/reports",
-            "/api/popular"
+            "/api/popularity"
         ]
     }
 
