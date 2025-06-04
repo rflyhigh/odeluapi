@@ -11,6 +11,19 @@ from config import RATE_LIMIT_DEFAULT
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
+@router.get("/trending")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_trending_content(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50),
+    period: str = Query("week", description="Time period: day, week, month, year, all"),
+    current_user = Depends(require_auth)
+):
+    """
+    Get trending content (most popular from both movies and shows combined)
+    """
+    return await popularity_controller.get_trending_content(limit, period)
+
 @router.get("/movies")
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_popular_movies(

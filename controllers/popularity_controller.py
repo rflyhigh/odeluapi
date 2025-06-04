@@ -252,4 +252,143 @@ async def get_popular_shows(limit: int = 10, time_period: str = "week"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "message": str(e)}
+        )
+
+async def get_trending_content(limit: int = 10, time_period: str = "week"):
+    """
+    Get trending content (most popular from both movies and shows combined)
+    """
+    try:
+        # Try to get from cache first
+        cache_key = f"trending:content:{limit}:{time_period}"
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+        
+        # Calculate time period
+        now = datetime.now()
+        if time_period == "day":
+            start_date = now - timedelta(days=1)
+        elif time_period == "week":
+            start_date = now - timedelta(days=7)
+        elif time_period == "month":
+            start_date = now - timedelta(days=30)
+        elif time_period == "year":
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = datetime.min  # All time
+        
+        # Aggregate pipeline to get view counts for both movies and shows
+        pipeline = [
+            {"$match": {
+                "timestamp": {"$gte": start_date}
+            }},
+            {"$group": {
+                "_id": {
+                    "contentId": "$contentId",
+                    "contentType": "$contentType"
+                },
+                "viewCount": {"$sum": 1}
+            }},
+            {"$sort": {"viewCount": -1}},
+            {"$limit": limit * 2}  # Get more than needed to ensure we have enough after filtering
+        ]
+        
+        # Execute aggregation
+        cursor = content_view_collection.aggregate(pipeline)
+        popular_items = await cursor.to_list(length=limit * 2)
+        
+        # Get content details for the popular IDs
+        trending_content = []
+        for item in popular_items:
+            content_id = item["_id"]["contentId"]
+            content_type = item["_id"]["contentType"]
+            
+            if content_type == "movie":
+                content = await movie_collection.find_one(
+                    {"_id": content_id},
+                    {"title": 1, "image": 1, "releaseYear": 1, "rating": 1, "viewCount": 1}
+                )
+                if content:
+                    content_data = serialize_doc(content)
+                    content_data["type"] = "movie"
+                    content_data["year"] = content_data.get("releaseYear", "")
+                    content_data["recentViews"] = item["viewCount"]
+                    trending_content.append(content_data)
+            else:  # show
+                content = await show_collection.find_one(
+                    {"_id": content_id},
+                    {"title": 1, "image": 1, "startYear": 1, "endYear": 1, "rating": 1, "viewCount": 1}
+                )
+                if content:
+                    content_data = serialize_doc(content)
+                    content_data["type"] = "show"
+                    content_data["year"] = content_data.get("startYear", "")
+                    content_data["recentViews"] = item["viewCount"]
+                    trending_content.append(content_data)
+        
+        # Sort by view count and limit
+        trending_content.sort(key=lambda x: x.get("recentViews", 0), reverse=True)
+        trending_content = trending_content[:limit]
+        
+        # If we don't have enough results from recent views, supplement with overall popular content
+        if len(trending_content) < limit:
+            remaining = limit - len(trending_content)
+            existing_movie_ids = [item["_id"] for item in trending_content if item["type"] == "movie"]
+            existing_show_ids = [item["_id"] for item in trending_content if item["type"] == "show"]
+            
+            # Get movies with highest overall viewCount
+            movie_cursor = movie_collection.find(
+                {"_id": {"$nin": [ObjectId(id) for id in existing_movie_ids if ObjectId.is_valid(id)]}},
+                {"title": 1, "image": 1, "releaseYear": 1, "rating": 1, "viewCount": 1}
+            ).sort("viewCount", DESCENDING).limit(remaining // 2 + 1)
+            
+            # Get shows with highest overall viewCount
+            show_cursor = show_collection.find(
+                {"_id": {"$nin": [ObjectId(id) for id in existing_show_ids if ObjectId.is_valid(id)]}},
+                {"title": 1, "image": 1, "startYear": 1, "endYear": 1, "rating": 1, "viewCount": 1}
+            ).sort("viewCount", DESCENDING).limit(remaining // 2 + 1)
+            
+            # Execute both queries in parallel
+            import asyncio
+            additional_movies, additional_shows = await asyncio.gather(
+                movie_cursor.to_list(length=remaining // 2 + 1),
+                show_cursor.to_list(length=remaining // 2 + 1)
+            )
+            
+            # Add movies to trending content
+            for movie in additional_movies:
+                movie_data = serialize_doc(movie)
+                movie_data["type"] = "movie"
+                movie_data["year"] = movie_data.get("releaseYear", "")
+                movie_data["recentViews"] = movie_data.get("viewCount", 0)
+                trending_content.append(movie_data)
+                
+            # Add shows to trending content
+            for show in additional_shows:
+                show_data = serialize_doc(show)
+                show_data["type"] = "show"
+                show_data["year"] = show_data.get("startYear", "")
+                show_data["recentViews"] = show_data.get("viewCount", 0)
+                trending_content.append(show_data)
+            
+            # Sort again and limit
+            trending_content.sort(key=lambda x: x.get("recentViews", 0), reverse=True)
+            trending_content = trending_content[:limit]
+        
+        result = {
+            "success": True,
+            "data": trending_content,
+            "period": time_period
+        }
+        
+        # Cache the result
+        await set_cache(cache_key, result, 300)  # Cache for 5 minutes
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_trending_content: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "message": str(e)}
         ) 
