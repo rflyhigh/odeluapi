@@ -8,6 +8,9 @@ from datetime import datetime
 import redis.asyncio as redis
 import logging
 import orjson
+import backoff
+import asyncio
+from pymongo.errors import ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +23,9 @@ MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 DATABASE_NAME = os.getenv("DATABASE_NAME", "odelu")
 MAX_POOL_SIZE = int(os.getenv("MONGODB_MAX_POOL_SIZE", "100"))
 MIN_POOL_SIZE = int(os.getenv("MONGODB_MIN_POOL_SIZE", "10"))
+SERVER_SELECTION_TIMEOUT_MS = int(os.getenv("MONGODB_SERVER_SELECTION_TIMEOUT_MS", "30000"))  # 30 seconds
+SOCKET_TIMEOUT_MS = int(os.getenv("MONGODB_SOCKET_TIMEOUT_MS", "45000"))  # 45 seconds
+CONNECT_TIMEOUT_MS = int(os.getenv("MONGODB_CONNECT_TIMEOUT_MS", "45000"))  # 45 seconds
 
 # Redis settings
 REDIS_URL = os.getenv("REDIS_URL", "")
@@ -32,7 +38,11 @@ client = AsyncIOMotorClient(
     maxPoolSize=MAX_POOL_SIZE,
     minPoolSize=MIN_POOL_SIZE,
     retryWrites=True,
-    serverSelectionTimeoutMS=5000
+    serverSelectionTimeoutMS=SERVER_SELECTION_TIMEOUT_MS,
+    socketTimeoutMS=SOCKET_TIMEOUT_MS,
+    connectTimeoutMS=CONNECT_TIMEOUT_MS,
+    retryReads=True,
+    waitQueueTimeoutMS=30000
 )
 db = client[DATABASE_NAME]
 
@@ -201,6 +211,47 @@ async def check_redis_connection():
     except Exception as e:
         logger.error(f"Redis connection check failed: {str(e)}")
         return False
+
+# Function to check MongoDB connection
+async def check_mongodb_connection():
+    """Check if MongoDB connection is working properly"""
+    try:
+        # Try to ping MongoDB server
+        await client.admin.command('ping')
+        logger.info("MongoDB connection is working properly")
+        return True
+    except Exception as e:
+        logger.error(f"MongoDB connection check failed: {str(e)}")
+        return False
+
+# Decorator for MongoDB operations with exponential backoff retry
+def with_mongodb_retry(max_tries=5, max_time=300):
+    """
+    Decorator to retry MongoDB operations with exponential backoff
+    
+    Args:
+        max_tries: Maximum number of retry attempts
+        max_time: Maximum time in seconds to keep retrying
+    """
+    def decorator(func):
+        @backoff.on_exception(
+            backoff.expo,
+            (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure),
+            max_tries=max_tries,
+            max_time=max_time,
+            on_backoff=lambda details: logger.warning(
+                f"MongoDB operation failed. Retrying {func.__name__} in {details['wait']:.1f} seconds. "
+                f"Attempt {details['tries']}/{max_tries}"
+            )
+        )
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure) as e:
+                logger.error(f"MongoDB operation failed after {max_tries} attempts: {str(e)}")
+                raise
+        return wrapper
+    return decorator
 
 # Utility function for comment operations
 async def batch_fetch_user_avatars(comments_list):

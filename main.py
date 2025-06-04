@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
+from database import create_indexes, check_redis_connection, check_mongodb_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
 
@@ -53,8 +53,17 @@ async def clear_comment_caches():
 async def lifespan(app: FastAPI):
     # Startup event
     logger.info("Starting up the application")
-    await create_indexes()
-    logger.info("Database indexes created")
+    
+    # Check MongoDB connection
+    mongodb_connected = await check_mongodb_connection()
+    if not mongodb_connected:
+        logger.warning("MongoDB connection failed during startup. Application may experience issues.")
+    else:
+        logger.info("MongoDB connection successful")
+        await create_indexes()
+        logger.info("Database indexes created")
+    
+    # Check Redis connection
     await check_redis_connection()
     
     # Start comment cache clearing task
@@ -154,7 +163,14 @@ async def root(request: Request):
 # Health check endpoint
 @app.get("/health", tags=["health"])
 async def health_check():
-    return {"status": "healthy"}
+    mongodb_status = await check_mongodb_connection()
+    redis_status = await check_redis_connection() if CACHE_ENABLED else None
+    
+    return {
+        "status": "healthy" if mongodb_status else "degraded",
+        "mongodb": "connected" if mongodb_status else "disconnected",
+        "redis": "connected" if redis_status else "disconnected" if CACHE_ENABLED else "disabled"
+    }
 
 # Redis status endpoint
 @app.get("/redis-status", tags=["health"])
@@ -163,6 +179,14 @@ async def redis_status():
     return {
         "redis_enabled": CACHE_ENABLED,
         "redis_status": "connected" if redis_working else "disconnected"
+    }
+
+# MongoDB status endpoint
+@app.get("/mongodb-status", tags=["health"])
+async def mongodb_status():
+    mongodb_working = await check_mongodb_connection()
+    return {
+        "mongodb_status": "connected" if mongodb_working else "disconnected"
     }
 
 # Serve static files if in production

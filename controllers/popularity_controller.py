@@ -11,11 +11,13 @@ from database import (
     show_collection, 
     serialize_doc,
     get_cache,
-    set_cache
+    set_cache,
+    with_mongodb_retry
 )
 
 logger = logging.getLogger(__name__)
 
+@with_mongodb_retry()
 async def track_content_view(content_id: str, content_type: str, user_id: Optional[str] = None):
     """
     Track a view for a specific content item
@@ -72,6 +74,7 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
             detail={"success": False, "message": str(e)}
         )
 
+@with_mongodb_retry()
 async def get_popular_movies(limit: int = 10, time_period: str = "week"):
     """
     Get popular movies based on view count
@@ -163,6 +166,7 @@ async def get_popular_movies(limit: int = 10, time_period: str = "week"):
             detail={"success": False, "message": str(e)}
         )
 
+@with_mongodb_retry()
 async def get_popular_shows(limit: int = 10, time_period: str = "week"):
     """
     Get popular shows based on view count
@@ -254,6 +258,7 @@ async def get_popular_shows(limit: int = 10, time_period: str = "week"):
             detail={"success": False, "message": str(e)}
         )
 
+@with_mongodb_retry()
 async def get_trending_content(limit: int = 10, time_period: str = "week"):
     """
     Get trending content (most popular from both movies and shows combined)
