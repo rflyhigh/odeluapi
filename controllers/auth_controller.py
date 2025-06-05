@@ -5,6 +5,7 @@ from typing import Optional
 import logging
 from bson import ObjectId
 import re
+import pytz
 
 from database import user_collection, serialize_doc, delete_cache_pattern
 from models.user import UserCreate, User, UserInDB
@@ -228,6 +229,17 @@ async def update_user_profile(user_id: str, user_data: dict):
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={"success": False, "message": "Username already taken"}
                     )
+        
+        # Validate timezone if it's being updated
+        if "timezone" in user_data:
+            try:
+                # Check if timezone is valid
+                pytz.timezone(user_data["timezone"])
+            except pytz.exceptions.UnknownTimeZoneError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"success": False, "message": f"Invalid timezone: {user_data['timezone']}"}
+                )
             
         # Add updated timestamp
         user_data["updatedAt"] = datetime.now()

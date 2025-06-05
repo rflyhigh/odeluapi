@@ -42,8 +42,12 @@ async def list_comments(
     limit: int = Query(50, description="Number of comments to return"),
     skip: int = Query(0, description="Number of comments to skip"),
     refresh: Union[bool, None] = Query(False, description="Set to true to bypass cache and get fresh data"),
+    timezone: Optional[str] = Query(None, description="Timezone for converting timestamps (e.g., 'Asia/Kolkata')"),
     current_user = Depends(require_auth)
 ):
+    """
+    Get comments for content with optional timezone conversion
+    """
     # Try to get from cache first (unless refresh is true)
     if not refresh:
         cache_key = f"comments:{content_type}:{content_id}:{parent_id}:{limit}:{skip}"
@@ -69,10 +73,11 @@ async def get_comments_by_user(
     limit: int = Query(50, description="Number of comments to return"),
     skip: int = Query(0, description="Number of comments to skip"),
     refresh: Union[bool, None] = Query(False, description="Set to true to bypass cache and get fresh data"),
+    timezone: Optional[str] = Query(None, description="Timezone for converting timestamps (e.g., 'Asia/Kolkata')"),
     current_user = Depends(require_auth)
 ):
     """
-    Get all comments made by a specific user
+    Get all comments made by a specific user with optional timezone conversion
     """
     # Try to get from cache first (unless refresh is true)
     if not refresh:
@@ -97,8 +102,12 @@ async def get_comment(
     request: Request,
     comment_id: str = Path(..., description="ID of the comment to get"),
     refresh: Union[bool, None] = Query(False, description="Set to true to bypass cache and get fresh data"),
+    timezone: Optional[str] = Query(None, description="Timezone for converting timestamps (e.g., 'Asia/Kolkata')"),
     current_user = Depends(require_auth)
 ):
+    """
+    Get a specific comment with optional timezone conversion
+    """
     # Try to get from cache first (unless refresh is true)
     if not refresh:
         cache_key = f"comment:{comment_id}"
@@ -122,8 +131,12 @@ async def get_nested_comment(
     request: Request,
     comment_id: str = Path(..., description="ID of the comment to get with all its replies"),
     refresh: Union[bool, None] = Query(False, description="Set to true to bypass cache and get fresh data"),
+    timezone: Optional[str] = Query(None, description="Timezone for converting timestamps (e.g., 'Asia/Kolkata')"),
     current_user = Depends(require_auth)
 ):
+    """
+    Get a comment tree with all replies with optional timezone conversion
+    """
     # Try to get from cache first (unless refresh is true)
     if not refresh:
         cache_key = f"comment_tree:{comment_id}"

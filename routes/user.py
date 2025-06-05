@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Path, Cookie, Response, Request
 import logging
+from typing import Optional
 
 from controllers import user_controller
 from controllers.comment_controller import get_user_comments
@@ -25,10 +26,12 @@ async def health_check():
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_watch_history(
     request: Request, 
+    timezone: Optional[str] = None,
     current_user = Depends(require_auth)
 ):
     """
     Get user's watch history
+    Optionally specify a timezone to convert timestamps
     """
     user_id = current_user["_id"]
     return await user_controller.get_watch_history(user_id)
@@ -37,10 +40,12 @@ async def get_watch_history(
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def get_continue_watching(
     request: Request, 
+    timezone: Optional[str] = None,
     current_user = Depends(require_auth)
 ):
     """
     Get user's continue watching list
+    Optionally specify a timezone to convert timestamps
     """
     user_id = current_user["_id"]
     return await user_controller.get_continue_watching(user_id)
@@ -51,10 +56,12 @@ async def get_continue_watching(
 async def get_recently_added_content(
     request: Request,
     limit: int = Query(5, ge=1, le=10),
+    timezone: Optional[str] = None,
     current_user = Depends(require_auth)
 ):
     """
     Get recently added content (movies and episodes)
+    Optionally specify a timezone to convert timestamps
     """
     return await user_controller.get_recently_added(limit)
 

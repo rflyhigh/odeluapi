@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, validator
 from bson import ObjectId
 import re
+import pytz
 
 class PyObjectId(str):
     @classmethod
@@ -25,6 +26,7 @@ class UserBase(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     avatar: str = "default.jpeg"  # Default avatar
+    timezone: str = "Asia/Kolkata"  # Default timezone (Indian)
     
     @validator('username')
     def validate_username(cls, v):
@@ -36,6 +38,13 @@ class UserBase(BaseModel):
         if re.search(r'^\$|\.|\{|\}|;|javascript:|<script|<\/script>|<|>|\"|\\\|\/\*|\*\/', v, re.IGNORECASE):
             raise ValueError("Username contains invalid characters")
         
+        return v
+    
+    @validator('timezone')
+    def validate_timezone(cls, v):
+        # Validate timezone is a valid pytz timezone
+        if v not in pytz.all_timezones:
+            raise ValueError(f"Invalid timezone: {v}")
         return v
     
     model_config = ConfigDict(
@@ -53,6 +62,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
+    timezone: Optional[str] = None
     
     model_config = ConfigDict(
         populate_by_name=True,
