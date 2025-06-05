@@ -56,7 +56,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={"success": False, "message": "Could not validate credentials"},
+        detail={"success": False, "message": "Invalid or expired authentication token. Please login again."},
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -70,7 +70,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     user = await user_collection.find_one({"username": token_data.username})
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "message": "User not found. The account may have been deleted."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     return serialize_doc(user)
 

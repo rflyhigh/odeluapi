@@ -7,4 +7,9 @@ async def require_auth(current_user = Depends(get_current_user)):
     This simply uses the get_current_user dependency which will raise
     an HTTPException if the user is not authenticated.
     """
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "message": "Authentication required. Please login to continue."}
+        )
     return current_user 

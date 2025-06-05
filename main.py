@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from database import create_indexes, check_redis_connection, check_mongodb_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
+from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
 
@@ -53,17 +53,8 @@ async def clear_comment_caches():
 async def lifespan(app: FastAPI):
     # Startup event
     logger.info("Starting up the application")
-    
-    # Check MongoDB connection
-    mongodb_connected = await check_mongodb_connection()
-    if not mongodb_connected:
-        logger.warning("MongoDB connection failed during startup. Application may experience issues.")
-    else:
-        logger.info("MongoDB connection successful")
-        await create_indexes()
-        logger.info("Database indexes created")
-    
-    # Check Redis connection
+    await create_indexes()
+    logger.info("Database indexes created")
     await check_redis_connection()
     
     # Start comment cache clearing task
@@ -104,11 +95,29 @@ app = FastAPI(
 # Add custom error handler for authentication errors
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Check if this is an authentication error
     if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        # Check if there's a custom message in the detail
+        if isinstance(exc.detail, dict) and "message" in exc.detail:
+            # Return the custom message
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"success": False, "message": exc.detail["message"]}
+            )
+        # Default authentication error message
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"success": False, "message": "Authentication required. Please login to access this content."}
         )
+    
+    # For other errors, check if detail is a dict with a message
+    if isinstance(exc.detail, dict) and "message" in exc.detail:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "message": exc.detail["message"]}
+        )
+    
+    # Default error response
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "message": str(exc.detail)}
@@ -163,14 +172,7 @@ async def root(request: Request):
 # Health check endpoint
 @app.get("/health", tags=["health"])
 async def health_check():
-    mongodb_status = await check_mongodb_connection()
-    redis_status = await check_redis_connection() if CACHE_ENABLED else None
-    
-    return {
-        "status": "healthy" if mongodb_status else "degraded",
-        "mongodb": "connected" if mongodb_status else "disconnected",
-        "redis": "connected" if redis_status else "disconnected" if CACHE_ENABLED else "disabled"
-    }
+    return {"status": "healthy"}
 
 # Redis status endpoint
 @app.get("/redis-status", tags=["health"])
@@ -179,14 +181,6 @@ async def redis_status():
     return {
         "redis_enabled": CACHE_ENABLED,
         "redis_status": "connected" if redis_working else "disconnected"
-    }
-
-# MongoDB status endpoint
-@app.get("/mongodb-status", tags=["health"])
-async def mongodb_status():
-    mongodb_working = await check_mongodb_connection()
-    return {
-        "mongodb_status": "connected" if mongodb_working else "disconnected"
     }
 
 # Serve static files if in production

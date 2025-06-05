@@ -11,13 +11,11 @@ from database import (
     show_collection, 
     serialize_doc,
     get_cache,
-    set_cache,
-    with_mongodb_retry
+    set_cache
 )
 
 logger = logging.getLogger(__name__)
 
-@with_mongodb_retry()
 async def track_content_view(content_id: str, content_type: str, user_id: Optional[str] = None):
     """
     Track a view for a specific content item
@@ -27,11 +25,18 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         if content_type not in ["movie", "show"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"success": False, "message": "Invalid content type. Must be 'movie' or 'show'"}
+                detail={"success": False, "message": f"Invalid content type '{content_type}'. Must be 'movie' or 'show'"}
             )
             
         # Validate content exists
-        content_obj_id = ObjectId(content_id)
+        try:
+            content_obj_id = ObjectId(content_id)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "message": f"Invalid content ID format: {content_id}"}
+            )
+            
         if content_type == "movie":
             content = await movie_collection.find_one({"_id": content_obj_id}, projection={"_id": 1})
         else:
@@ -40,7 +45,7 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         if not content:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"success": False, "message": f"{content_type.capitalize()} not found"}
+                detail={"success": False, "message": f"{content_type.capitalize()} with ID {content_id} not found"}
             )
         
         # Create view record
@@ -71,10 +76,9 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         logger.error(f"Error in track_content_view: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": str(e)}
+            detail={"success": False, "message": f"Failed to track view: {str(e)}"}
         )
 
-@with_mongodb_retry()
 async def get_popular_movies(limit: int = 10, time_period: str = "week"):
     """
     Get popular movies based on view count
@@ -163,10 +167,9 @@ async def get_popular_movies(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_popular_movies: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": str(e)}
+            detail={"success": False, "message": f"Failed to retrieve popular movies: {str(e)}"}
         )
 
-@with_mongodb_retry()
 async def get_popular_shows(limit: int = 10, time_period: str = "week"):
     """
     Get popular shows based on view count
@@ -255,10 +258,9 @@ async def get_popular_shows(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_popular_shows: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": str(e)}
+            detail={"success": False, "message": f"Failed to retrieve popular shows: {str(e)}"}
         )
 
-@with_mongodb_retry()
 async def get_trending_content(limit: int = 10, time_period: str = "week"):
     """
     Get trending content (most popular from both movies and shows combined)
@@ -395,5 +397,5 @@ async def get_trending_content(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_trending_content: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": str(e)}
+            detail={"success": False, "message": f"Failed to retrieve trending content: {str(e)}"}
         ) 
