@@ -16,7 +16,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
-from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity, utils
+from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
 
 # Configure logging
@@ -95,29 +95,18 @@ app = FastAPI(
 # Add custom error handler for authentication errors
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    # Check if this is an authentication error
     if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-        # Check if there's a custom message in the detail
+        # Get the actual error message from the exception detail if it exists
         if isinstance(exc.detail, dict) and "message" in exc.detail:
-            # Return the custom message
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"success": False, "message": exc.detail["message"]}
             )
-        # Default authentication error message
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"success": False, "message": "Authentication required. Please login to access this content."}
-        )
-    
-    # For other errors, check if detail is a dict with a message
-    if isinstance(exc.detail, dict) and "message" in exc.detail:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "message": exc.detail["message"]}
-        )
-    
-    # Default error response
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"success": False, "message": "Authentication required. Please login to access this content."}
+            )
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "message": str(exc.detail)}
@@ -148,7 +137,6 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(comments.router, prefix="/api/comments", tags=["comments"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(popularity.router, prefix="/api/popularity", tags=["popularity"])
-app.include_router(utils.router, prefix="/api/utils", tags=["utils"])
 
 # Root endpoint
 @app.get("/", tags=["root"])
@@ -167,8 +155,54 @@ async def root(request: Request):
             "/api/comments",
             "/api/reports",
             "/api/popularity",
-            "/api/utils"
+            "/api/time"
         ]
+    }
+
+# Time and timezone endpoint
+@app.get("/api/time", tags=["utility"])
+async def get_time_info():
+    """
+    Get server time in UTC and common timezones
+    """
+    from datetime import datetime
+    import pytz
+    
+    # Current time in UTC
+    now_utc = datetime.now(pytz.UTC)
+    
+    # Common timezones to include
+    common_timezones = [
+        "America/New_York",      # Eastern Time
+        "America/Chicago",       # Central Time
+        "America/Denver",        # Mountain Time
+        "America/Los_Angeles",   # Pacific Time
+        "Europe/London",         # GMT/BST
+        "Europe/Paris",          # Central European Time
+        "Asia/Tokyo",            # Japan Time
+        "Asia/Shanghai",         # China Time
+        "Asia/Kolkata",          # Indian Standard Time
+        "Australia/Sydney"       # Australian Eastern Time
+    ]
+    
+    # Build timezone information
+    timezone_info = {}
+    for tz_name in common_timezones:
+        timezone = pytz.timezone(tz_name)
+        local_time = now_utc.astimezone(timezone)
+        timezone_info[tz_name] = {
+            "time": local_time.isoformat(),
+            "offset": local_time.utcoffset().total_seconds() / 3600,
+            "timezone_abbr": local_time.strftime("%Z")
+        }
+    
+    return {
+        "success": True,
+        "data": {
+            "server_time_utc": now_utc.isoformat(),
+            "timestamp": int(now_utc.timestamp()),
+            "timezones": timezone_info
+        }
     }
 
 # Health check endpoint

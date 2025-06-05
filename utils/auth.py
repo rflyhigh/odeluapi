@@ -56,7 +56,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={"success": False, "message": "Invalid or expired authentication token. Please login again."},
+        detail={"success": False, "message": "Invalid or expired token. Please login again."},
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -72,7 +72,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": "User not found. The account may have been deleted."},
+            detail={"success": False, "message": "User no longer exists. Please register again."},
             headers={"WWW-Authenticate": "Bearer"},
         )
     

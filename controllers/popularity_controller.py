@@ -25,18 +25,11 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         if content_type not in ["movie", "show"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"success": False, "message": f"Invalid content type '{content_type}'. Must be 'movie' or 'show'"}
+                detail={"success": False, "message": "Invalid content type. Must be 'movie' or 'show'"}
             )
             
         # Validate content exists
-        try:
-            content_obj_id = ObjectId(content_id)
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"success": False, "message": f"Invalid content ID format: {content_id}"}
-            )
-            
+        content_obj_id = ObjectId(content_id)
         if content_type == "movie":
             content = await movie_collection.find_one({"_id": content_obj_id}, projection={"_id": 1})
         else:
@@ -45,7 +38,7 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         if not content:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"success": False, "message": f"{content_type.capitalize()} with ID {content_id} not found"}
+                detail={"success": False, "message": f"{content_type.capitalize()} not found"}
             )
         
         # Create view record
@@ -76,7 +69,7 @@ async def track_content_view(content_id: str, content_type: str, user_id: Option
         logger.error(f"Error in track_content_view: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": f"Failed to track view: {str(e)}"}
+            detail={"success": False, "message": str(e)}
         )
 
 async def get_popular_movies(limit: int = 10, time_period: str = "week"):
@@ -167,7 +160,7 @@ async def get_popular_movies(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_popular_movies: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": f"Failed to retrieve popular movies: {str(e)}"}
+            detail={"success": False, "message": str(e)}
         )
 
 async def get_popular_shows(limit: int = 10, time_period: str = "week"):
@@ -258,7 +251,7 @@ async def get_popular_shows(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_popular_shows: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": f"Failed to retrieve popular shows: {str(e)}"}
+            detail={"success": False, "message": str(e)}
         )
 
 async def get_trending_content(limit: int = 10, time_period: str = "week"):
@@ -397,5 +390,5 @@ async def get_trending_content(limit: int = 10, time_period: str = "week"):
         logger.error(f"Error in get_trending_content: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": f"Failed to retrieve trending content: {str(e)}"}
+            detail={"success": False, "message": str(e)}
         ) 

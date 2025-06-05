@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Body, HTTPException, Response, Cookie, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
+from fastapi.responses import JSONResponse
 
 from controllers import auth_controller
 from models.user import UserCreate, UserUpdate
@@ -27,7 +28,17 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     """
     Login to get access token
     """
-    return await auth_controller.login_user(form_data)
+    try:
+        return await auth_controller.login_user(form_data)
+    except HTTPException as e:
+        # Ensure we return proper error format even if HTTPException is raised
+        if e.status_code == 401:
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"success": False, "message": "Invalid email or password. Please try again."}
+            )
+        # For other exceptions, just pass through
+        raise
 
 @router.get("/me")
 @limiter.limit(RATE_LIMIT_AUTH)
