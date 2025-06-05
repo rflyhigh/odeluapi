@@ -1,6 +1,6 @@
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 import json
 import logging
 import orjson
@@ -81,7 +81,6 @@ class TimezoneConverterMiddleware(BaseHTTPMiddleware):
             try:
                 # Get the response body
                 response_body = [chunk async for chunk in response.body_iterator]
-                response.body_iterator = iter(response_body)
                 
                 # Join and parse the response
                 body = b"".join(response_body)
@@ -97,28 +96,33 @@ class TimezoneConverterMiddleware(BaseHTTPMiddleware):
                 if "data" in data:
                     data["data"] = convert_timestamps_in_dict(data["data"], user_timezone)
                 
-                # Return modified response with custom JSON encoder for datetime objects
+                # Convert back to JSON and return as a new response
                 try:
-                    # Try with orjson first
-                    json_content = orjson.dumps(data).decode("utf-8")
-                    return Response(
-                        content=json_content,
+                    # Try with orjson first (faster)
+                    json_bytes = orjson.dumps(data)
+                    
+                    # Create a new response with the modified body
+                    # Use StreamingResponse to avoid Content-Length issues
+                    async def streaming_response():
+                        yield json_bytes
+                        
+                    return StreamingResponse(
+                        streaming_response(),
                         status_code=response.status_code,
-                        headers=dict(response.headers),
                         media_type="application/json"
                     )
-                except Exception:
-                    # Fall back to standard json with custom encoder
+                except Exception as e:
+                    # Fall back to standard json
+                    logger.warning(f"orjson serialization failed: {str(e)}")
                     return JSONResponse(
-                        status_code=response.status_code,
                         content=data,
-                        headers=dict(response.headers)
+                        status_code=response.status_code
                     )
             except Exception as e:
                 # Log the specific error for debugging
                 logger.error(f"Error in timezone middleware: {str(e)}")
                 
-                # If any error occurs, return the original response
+                # Return original response on error
                 return Response(
                     content=body,
                     status_code=response.status_code,
