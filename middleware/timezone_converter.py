@@ -5,11 +5,19 @@ import json
 import logging
 import orjson
 from typing import Optional, Callable, Dict, Any
+from datetime import datetime
 
 from utils.auth import get_current_user_optional
 from utils.time_helpers import convert_timestamps_in_dict
 
 logger = logging.getLogger(__name__)
+
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 class TimezoneConverterMiddleware(BaseHTTPMiddleware):
     """
@@ -29,7 +37,9 @@ class TimezoneConverterMiddleware(BaseHTTPMiddleware):
             "/api/user/history",
             "/api/user/continue-watching",
             "/api/user/recently-added",
-            "/api/user/me/comments"
+            "/api/user/me/comments",
+            "/api/popularity",  # Adding popularity endpoints
+            "/api/watchlist"    # Adding watchlist endpoints
         ]
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -75,21 +85,40 @@ class TimezoneConverterMiddleware(BaseHTTPMiddleware):
                 
                 # Join and parse the response
                 body = b"".join(response_body)
-                data = json.loads(body.decode("utf-8"))
+                
+                try:
+                    # Try parsing with orjson first (faster and handles datetime better)
+                    data = orjson.loads(body)
+                except Exception:
+                    # Fall back to standard json
+                    data = json.loads(body.decode("utf-8"))
                 
                 # Apply timezone conversion to response data
                 if "data" in data:
                     data["data"] = convert_timestamps_in_dict(data["data"], user_timezone)
                 
-                # Return modified response
-                return JSONResponse(
-                    status_code=response.status_code,
-                    content=data,
-                    headers=dict(response.headers)
-                )
+                # Return modified response with custom JSON encoder for datetime objects
+                try:
+                    # Try with orjson first
+                    json_content = orjson.dumps(data).decode("utf-8")
+                    return Response(
+                        content=json_content,
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                        media_type="application/json"
+                    )
+                except Exception:
+                    # Fall back to standard json with custom encoder
+                    return JSONResponse(
+                        status_code=response.status_code,
+                        content=data,
+                        headers=dict(response.headers)
+                    )
             except Exception as e:
-                # If any error occurs, return the original response
+                # Log the specific error for debugging
                 logger.error(f"Error in timezone middleware: {str(e)}")
+                
+                # If any error occurs, return the original response
                 return Response(
                     content=body,
                     status_code=response.status_code,

@@ -2,6 +2,7 @@ import pytz
 from datetime import datetime
 import logging
 from typing import Dict, Any, Optional, Union, List
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,12 @@ def convert_datetime_to_timezone(
         if format_string:
             return converted_dt.strftime(format_string)
         
-        return converted_dt
+        # Always return ISO format string to ensure JSON serialization
+        return converted_dt.isoformat()
     except Exception as e:
         logger.warning(f"Error converting timezone: {str(e)}")
+        if isinstance(dt, datetime):
+            return dt.isoformat()  # Return ISO format on error
         return dt  # Return original on error
 
 def convert_timestamps_in_dict(
