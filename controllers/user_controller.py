@@ -71,13 +71,7 @@ async def get_watch_history(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
         
-        result = {
-            "success": True, 
-            "data": {
-                "items": content_details,
-                "timezone_note": "All timestamps are in UTC and will be converted to user's timezone by middleware"
-            }
-        }
+        result = {"success": True, "data": content_details}
         
         # Cache the result
         await set_cache(cache_key, result, 300)  # Cache for 5 minutes
@@ -146,13 +140,7 @@ async def get_recently_added(limit: int = 5):
         # Take only the most recent items
         recent_items = recent_items[:limit]
         
-        result = {
-            "success": True, 
-            "data": {
-                "items": recent_items,
-                "timezone_note": "All timestamps are in UTC and will be converted to user's timezone by middleware"
-            }
-        }
+        result = {"success": True, "data": recent_items}
         
         # Cache the result
         await set_cache(cache_key, result, 300)  # Cache for 5 minutes
@@ -231,13 +219,7 @@ async def get_continue_watching(user_id: str):
                         "watchedAt": item.get("watchedAt")
                     })
         
-        result = {
-            "success": True, 
-            "data": {
-                "items": content_details,
-                "timezone_note": "All timestamps are in UTC and will be converted to user's timezone by middleware"
-            }
-        }
+        result = {"success": True, "data": content_details}
         
         # Cache the result
         await set_cache(cache_key, result, 300)  # Cache for 5 minutes

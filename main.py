@@ -18,8 +18,6 @@ from fastapi.openapi.utils import get_openapi
 from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
-from utils.auth import get_current_user_optional
-from middleware.timezone_converter import TimezoneConverterMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -128,9 +126,6 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Add timezone conversion middleware
-app.add_middleware(TimezoneConverterMiddleware)
-
 # Include routers
 app.include_router(movies.router, prefix="/api/movies", tags=["movies"])
 app.include_router(shows.router, prefix="/api/shows", tags=["shows"])
@@ -166,24 +161,12 @@ async def root(request: Request):
 
 # Time and timezone endpoint
 @app.get("/api/time", tags=["utility"])
-async def get_time_info(request: Request, user_timezone: str = None):
+async def get_time_info():
     """
     Get server time in UTC and common timezones
-    If user is authenticated, their preferred timezone will be included
     """
     from datetime import datetime
     import pytz
-    from fastapi import Header, Depends
-    from utils.auth import get_current_user_optional
-    
-    # Try to get current user (if authenticated)
-    try:
-        token = request.headers.get("authorization", "").replace("Bearer ", "")
-        current_user = None
-        if token:
-            current_user = await get_current_user_optional(token)
-    except:
-        current_user = None
     
     # Current time in UTC
     now_utc = datetime.now(pytz.UTC)
@@ -192,36 +175,15 @@ async def get_time_info(request: Request, user_timezone: str = None):
     common_timezones = [
         "America/New_York",      # Eastern Time
         "America/Chicago",       # Central Time
+        "America/Denver",        # Mountain Time
         "America/Los_Angeles",   # Pacific Time
         "Europe/London",         # GMT/BST
         "Europe/Paris",          # Central European Time
-        "Asia/Dubai",            # Gulf Standard Time
-        "Asia/Kolkata",          # Indian Standard Time
-        "Asia/Singapore",        # Singapore Time
         "Asia/Tokyo",            # Japan Time
-        "Australia/Sydney",      # Australian Eastern Time
+        "Asia/Shanghai",         # China Time
+        "Asia/Kolkata",          # Indian Standard Time
+        "Australia/Sydney"       # Australian Eastern Time
     ]
-    
-    # Add user's timezone from their profile if authenticated
-    if current_user and "timezone" in current_user and current_user["timezone"] not in common_timezones:
-        try:
-            # Validate user timezone from profile
-            profile_timezone = current_user["timezone"]
-            timezone = pytz.timezone(profile_timezone)
-            common_timezones.insert(0, profile_timezone)  # Add at beginning
-        except pytz.exceptions.UnknownTimeZoneError:
-            # If invalid, ignore it
-            pass
-    
-    # Add timezone from parameter if provided and not already included
-    if user_timezone and user_timezone not in common_timezones:
-        try:
-            # Validate user timezone from parameter
-            timezone = pytz.timezone(user_timezone)
-            common_timezones.insert(0, user_timezone)  # Add at beginning
-        except pytz.exceptions.UnknownTimeZoneError:
-            # If invalid, ignore it
-            pass
     
     # Build timezone information
     timezone_info = {}
@@ -231,23 +193,14 @@ async def get_time_info(request: Request, user_timezone: str = None):
         timezone_info[tz_name] = {
             "time": local_time.isoformat(),
             "offset": local_time.utcoffset().total_seconds() / 3600,
-            "timezone_abbr": local_time.strftime("%Z"),
-            "display_name": tz_name.replace("_", " ")
+            "timezone_abbr": local_time.strftime("%Z")
         }
-    
-    # Determine user's preferred timezone
-    user_preferred = None
-    if current_user and "timezone" in current_user:
-        user_preferred = current_user["timezone"]
-    elif user_timezone:
-        user_preferred = user_timezone
     
     return {
         "success": True,
         "data": {
             "server_time_utc": now_utc.isoformat(),
             "timestamp": int(now_utc.timestamp()),
-            "user_timezone": user_preferred,
             "timezones": timezone_info
         }
     }

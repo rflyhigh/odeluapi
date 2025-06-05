@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Body, HTTPException, Response, Cookie, R
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from controllers import auth_controller
 from models.user import UserCreate, UserUpdate
@@ -11,10 +10,6 @@ from middleware.auth_required import require_auth
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from config import RATE_LIMIT_AUTH
-
-# Add model for timezone update
-class TimezoneUpdate(BaseModel):
-    timezone: str
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -81,16 +76,3 @@ async def get_user_profile_by_username(request: Request, username: str, current_
     Get user profile by username
     """
     return await auth_controller.get_user_by_username(username)
-
-@router.put("/timezone")
-@limiter.limit(RATE_LIMIT_AUTH)
-async def update_timezone(
-    request: Request,
-    timezone_data: TimezoneUpdate,
-    current_user = Depends(require_auth)
-):
-    """
-    Update user's timezone preference
-    """
-    user_id = current_user["_id"]
-    return await auth_controller.update_user_profile(user_id, {"timezone": timezone_data.timezone})

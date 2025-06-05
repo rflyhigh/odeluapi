@@ -219,16 +219,13 @@ async def get_comments(content_id: str, content_type: str, parent_id: Optional[s
                 replies.sort(key=lambda x: x["createdAt"], reverse=True)
                 comment["replies"] = replies
         
-        # Add timezone metadata to the response
-        serialized_comments = serialize_doc(comments)
         return {
             "success": True,
             "data": {
-                "comments": serialized_comments,
+                "comments": serialize_doc(comments),
                 "total": total,
                 "limit": limit,
-                "skip": skip,
-                "timezone_note": "All timestamps are in UTC and will be converted to user's timezone by middleware"
+                "skip": skip
             }
         }
     
