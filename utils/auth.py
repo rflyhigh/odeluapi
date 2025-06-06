@@ -70,6 +70,21 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
+            
+        # Explicitly check token expiration
+        exp = payload.get("exp")
+        if exp is None:
+            raise credentials_exception
+            
+        # Convert to datetime for better comparison
+        exp_datetime = datetime.fromtimestamp(exp)
+        if datetime.utcnow() > exp_datetime:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "message": "Token has expired"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
         token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
@@ -94,6 +109,17 @@ async def get_current_user_optional(token: str = Depends(oauth2_scheme_optional)
         username: str = payload.get("sub")
         if username is None:
             return None
+            
+        # Explicitly check token expiration
+        exp = payload.get("exp")
+        if exp is None:
+            return None
+            
+        # Convert to datetime for better comparison
+        exp_datetime = datetime.fromtimestamp(exp)
+        if datetime.utcnow() > exp_datetime:
+            return None
+            
         token_data = TokenData(username=username)
     except JWTError:
         return None

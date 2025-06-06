@@ -28,6 +28,7 @@ class Comment(BaseModel):
     content_type: str  # "movie" or "show"
     parent_id: Optional[PyObjectId] = None  # ID of parent comment if this is a reply
     replies: Optional[List[PyObjectId]] = []  # List of reply comment IDs
+    nesting_level: int = 1  # Nesting level (1 for top-level comments, increases with depth)
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
     

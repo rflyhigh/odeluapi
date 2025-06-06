@@ -3,6 +3,39 @@ from config import API_KEY
 from utils.auth import get_current_user_optional
 from starlette.middleware.base import BaseHTTPMiddleware
 import re
+import time
+from collections import defaultdict
+
+# Simple in-memory rate limiter for API key attempts
+class APIKeyRateLimiter:
+    def __init__(self, max_attempts=5, window_seconds=60):
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self.ip_attempts = defaultdict(list)
+        
+    def check_rate_limit(self, ip_address):
+        """
+        Check if IP has exceeded rate limit for API key attempts
+        Returns True if rate limited, False otherwise
+        """
+        now = time.time()
+        
+        # Keep only attempts within the time window
+        self.ip_attempts[ip_address] = [
+            timestamp for timestamp in self.ip_attempts[ip_address]
+            if now - timestamp < self.window_seconds
+        ]
+        
+        # Check if too many attempts
+        if len(self.ip_attempts[ip_address]) >= self.max_attempts:
+            return True
+            
+        # Record this attempt
+        self.ip_attempts[ip_address].append(now)
+        return False
+
+# Create a global instance
+api_key_limiter = APIKeyRateLimiter()
 
 async def verify_api_key(request: Request):
     """Verify API key for admin-only routes"""
@@ -13,6 +46,15 @@ async def verify_api_key(request: Request):
             detail={"success": False, "message": "Unauthorized: API Key missing"}
         )
     
+    # Check for rate limiting
+    client_ip = request.client.host
+    if api_key_limiter.check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail={"success": False, "message": "Too many API key authentication attempts. Please try again later."}
+        )
+    
+    # Check if API key is valid
     if api_key != API_KEY:
         raise HTTPException(
             status_code=401,
@@ -27,14 +69,29 @@ async def get_admin_user(request: Request):
     Use this for endpoints that need a user object for admin operations.
     """
     api_key = request.headers.get("x-api-key")
-    if api_key and api_key == API_KEY:
-        # Return a mock admin user object
-        return {"_id": "admin", "username": "admin", "role": "admin", "is_admin": True}
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail={"success": False, "message": "Unauthorized: API Key missing"}
+        )
+        
+    # Check for rate limiting
+    client_ip = request.client.host
+    if api_key_limiter.check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail={"success": False, "message": "Too many API key authentication attempts. Please try again later."}
+        )
     
-    raise HTTPException(
-        status_code=401,
-        detail={"success": False, "message": "Unauthorized: Invalid or missing API Key"}
-    )
+    # Check if API key is valid
+    if api_key != API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail={"success": False, "message": "Unauthorized: Invalid API Key"}
+        )
+        
+    # Return a mock admin user object
+    return {"_id": "admin", "username": "admin", "role": "admin", "is_admin": True}
 
 async def get_user_or_admin(request: Request):
     """
@@ -43,9 +100,19 @@ async def get_user_or_admin(request: Request):
     """
     # First check for API key (admin auth)
     api_key = request.headers.get("x-api-key")
-    if api_key and api_key == API_KEY:
-        # Return admin user object
-        return {"_id": "admin", "username": "admin", "role": "admin", "is_admin": True}
+    if api_key:
+        # Check for rate limiting only if they're attempting API key auth
+        client_ip = request.client.host
+        if api_key_limiter.check_rate_limit(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail={"success": False, "message": "Too many API key authentication attempts. Please try again later."}
+            )
+            
+        # Verify API key
+        if api_key == API_KEY:
+            # Return admin user object
+            return {"_id": "admin", "username": "admin", "role": "admin", "is_admin": True}
     
     # If not admin, try to get regular user from token
     user = await get_current_user_optional(request)

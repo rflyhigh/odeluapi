@@ -21,6 +21,7 @@ from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDI
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
 from middleware.api_auth import AdminPathMiddleware
+from utils.db_migration import add_nesting_level_to_comments
 
 # Configure logging
 logging.basicConfig(
@@ -58,6 +59,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up the application")
     await create_indexes()
     logger.info("Database indexes created")
+    
+    # Run database migrations - REMOVED as requested by user to run manually instead
+    
     await check_redis_connection()
     
     # Start comment cache clearing task

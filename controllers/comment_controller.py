@@ -4,12 +4,38 @@ import logging
 from bson import ObjectId
 from datetime import datetime
 import asyncio
+import html
+import re
 
 from database import comment_collection, user_collection, movie_collection, show_collection, serialize_doc, delete_cache_pattern
 from models.comment import CommentCreate, Comment
 from utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
+
+def sanitize_comment_content(content: str) -> str:
+    """
+    Sanitize comment content to prevent XSS attacks
+    - Escape HTML entities
+    - Remove potentially malicious patterns
+    """
+    # Escape HTML entities
+    sanitized = html.escape(content)
+    
+    # Strip potentially harmful patterns
+    patterns = [
+        r'javascript:',
+        r'data:text/html',
+        r'&#x', # Hex encoding
+        r'&#', # Decimal encoding
+        r'expression\s*\(',
+        r'vbscript:',
+    ]
+    
+    for pattern in patterns:
+        sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
+    
+    return sanitized
 
 async def create_comment(comment_data: CommentCreate, current_user: dict):
     """
@@ -43,7 +69,7 @@ async def create_comment(comment_data: CommentCreate, current_user: dict):
             parent_id = ObjectId(comment_data.parent_id)
             parent = await comment_collection.find_one(
                 {"_id": parent_id},
-                projection={"_id": 1, "content_id": 1, "content_type": 1}
+                projection={"_id": 1, "content_id": 1, "content_type": 1, "parent_id": 1, "nesting_level": 1}
             )
             
             if not parent:
@@ -58,17 +84,31 @@ async def create_comment(comment_data: CommentCreate, current_user: dict):
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={"success": False, "message": "Parent comment must be for the same content"}
                 )
+                
+            # Check nesting level - max 5 levels of nesting
+            nesting_level = parent.get("nesting_level", 1) + 1
+            if nesting_level > 5:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"success": False, "message": "Maximum comment nesting level reached (5)"}
+                )
+        else:
+            nesting_level = 1  # Top level comment
+        
+        # Sanitize comment content to prevent XSS
+        sanitized_content = sanitize_comment_content(comment_data.content)
         
         # Create comment document
         now = datetime.now()
         comment_dict = {
-            "content": comment_data.content,
+            "content": sanitized_content,
             "user_id": ObjectId(current_user["_id"]),
             "username": current_user["username"],
             "avatar": current_user.get("avatar", None),  # Include user avatar if available
             "content_id": content_id,
             "content_type": comment_data.content_type,
             "replies": [],
+            "nesting_level": nesting_level,
             "createdAt": now,
             "updatedAt": now
         }
@@ -283,10 +323,13 @@ async def update_comment(comment_id: str, content: str, current_user: dict):
                 detail={"success": False, "message": "You can only update your own comments"}
             )
             
+        # Sanitize comment content to prevent XSS
+        sanitized_content = sanitize_comment_content(content)
+            
         # Update comment
         await comment_collection.update_one(
             {"_id": ObjectId(comment_id)},
-            {"$set": {"content": content, "updatedAt": datetime.now()}}
+            {"$set": {"content": sanitized_content, "updatedAt": datetime.now()}}
         )
         
         # Get updated comment
@@ -346,21 +389,9 @@ async def delete_comment(comment_id: str, current_user: dict):
             f"user_comments:{comment['user_id']}:*"  # User's comments
         ]
         
-        # If this is a parent comment with replies, we need to handle them
-        if "replies" in comment and comment["replies"]:
-            # Option 1: Delete all replies (cascade delete)
-            for reply_id in comment["replies"]:
-                # Get reply info for cache clearing
-                reply = await comment_collection.find_one(
-                    {"_id": reply_id},
-                    projection={"user_id": 1}
-                )
-                if reply:
-                    # Add reply user's cache to clear
-                    cache_keys.append(f"user_comments:{reply['user_id']}:*")
-                    
-                await comment_collection.delete_one({"_id": reply_id})
-                
+        # Recursively delete all replies and their children
+        await delete_comment_recursively(ObjectId(comment_id), cache_keys)
+            
         # If this is a reply, update the parent's replies list
         if "parent_id" in comment:
             await comment_collection.update_one(
@@ -376,9 +407,6 @@ async def delete_comment(comment_id: str, current_user: dict):
             if parent:
                 cache_keys.append(f"comment:{parent['_id']}")
                 cache_keys.append(f"comment_tree:{parent['_id']}")
-            
-        # Delete the comment
-        await comment_collection.delete_one({"_id": ObjectId(comment_id)})
         
         # Clear all relevant caches
         for key in set(cache_keys):  # Using set to remove duplicates
@@ -394,6 +422,36 @@ async def delete_comment(comment_id: str, current_user: dict):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "message": str(e)}
         )
+
+async def delete_comment_recursively(comment_id: ObjectId, cache_keys: list):
+    """
+    Recursively delete a comment and all its descendants
+    """
+    try:
+        # Get comment info
+        comment = await comment_collection.find_one(
+            {"_id": comment_id},
+            projection={"_id": 1, "user_id": 1, "replies": 1}
+        )
+        
+        if comment:
+            # Add user's cache to clear
+            if "user_id" in comment:
+                cache_keys.append(f"user_comments:{comment['user_id']}:*")
+            
+            # Process replies recursively before deleting this comment
+            if "replies" in comment and comment["replies"]:
+                for reply_id in comment["replies"]:
+                    await delete_comment_recursively(reply_id, cache_keys)
+            
+            # Delete the comment after processing its children
+            await comment_collection.delete_one({"_id": comment_id})
+            return True
+        return False
+    
+    except Exception as e:
+        logger.error(f"Error in delete_comment_recursively: {str(e)}")
+        return False
 
 async def get_comment_tree(comment_id: str):
     """
