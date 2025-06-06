@@ -8,7 +8,7 @@ from collections import defaultdict
 
 # Simple in-memory rate limiter for API key attempts
 class APIKeyRateLimiter:
-    def __init__(self, max_attempts=5, window_seconds=60):
+    def __init__(self, max_attempts=50, window_seconds=60):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
         self.ip_attempts = defaultdict(list)

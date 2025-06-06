@@ -26,7 +26,7 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 # Rate limiting
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "50/minute")
 RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "20/minute")
-RATE_LIMIT_ADMIN = os.getenv("RATE_LIMIT_ADMIN", "120/minute")
+RATE_LIMIT_ADMIN = os.getenv("RATE_LIMIT_ADMIN", "200/minute")
 
 # App settings
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
