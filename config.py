@@ -26,13 +26,13 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 # Rate limiting
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "50/minute")
 RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "20/minute")
-RATE_LIMIT_ADMIN = os.getenv("RATE_LIMIT_ADMIN", "200/minute")
+RATE_LIMIT_ADMIN = os.getenv("RATE_LIMIT_ADMIN", "500/minute")
 
 # App settings
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 PORT = int(os.getenv("PORT", "8000"))
 
 # Cloudflare Turnstile settings
-TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "1x00000000000000000000AA")  # Replace with actual site key
-TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "1x0000000000000000000000000000000AA")  # Replace with actual secret key
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "1x00000000000000000000AA")
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "1x0000000000000000000000000000000AA")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
