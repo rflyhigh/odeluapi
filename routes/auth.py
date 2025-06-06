@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Body, HTTPException, Response, Cookie, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional
-from fastapi.responses import JSONResponse
 
 from controllers import auth_controller
 from models.user import UserCreate, UserUpdate
@@ -14,13 +13,19 @@ from config import RATE_LIMIT_AUTH
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
+class TurnstileLoginData:
+    def __init__(self, username: str, password: str, turnstile_token: str):
+        self.username = username
+        self.password = password
+        self.turnstile_token = turnstile_token
+
 @router.post("/register")
 @limiter.limit(RATE_LIMIT_AUTH)
 async def register(request: Request, user_data: UserCreate):
     """
-    Register a new user
+    Register a new user with Turnstile verification
     """
-    return await auth_controller.register_user(user_data)
+    return await auth_controller.register_user(user_data, request)
 
 @router.post("/login")
 @limiter.limit(RATE_LIMIT_AUTH)
@@ -28,17 +33,20 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     """
     Login to get access token
     """
-    try:
-        return await auth_controller.login_user(form_data)
-    except HTTPException as e:
-        # Ensure we return proper error format even if HTTPException is raised
-        if e.status_code == 401:
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"success": False, "message": "Invalid email or password. Please try again."}
-            )
-        # For other exceptions, just pass through
-        raise
+    return await auth_controller.login_user(form_data)
+
+@router.post("/login-with-turnstile")
+@limiter.limit(RATE_LIMIT_AUTH)
+async def login_with_turnstile(
+    request: Request, 
+    username: str = Body(...), 
+    password: str = Body(...), 
+    turnstile_token: str = Body(...)
+):
+    """
+    Login with Turnstile verification to get access token
+    """
+    return await auth_controller.login_with_turnstile(username, password, turnstile_token, request)
 
 @router.get("/me")
 @limiter.limit(RATE_LIMIT_AUTH)

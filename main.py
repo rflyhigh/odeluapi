@@ -14,6 +14,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from contextlib import asynccontextmanager
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+import traceback
+from pydantic import ValidationError
 
 from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
@@ -96,25 +98,76 @@ app = FastAPI(
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
     if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-        # Get the actual error message from the exception detail if it exists
-        if isinstance(exc.detail, dict) and "message" in exc.detail:
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"success": False, "message": exc.detail["message"]}
-            )
-        else:
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"success": False, "message": "Authentication required. Please login to access this content."}
-            )
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"success": False, "message": "Authentication required. Please login to access this content."}
+        )
+        
+    # Extract the detail and format it consistently
+    detail = exc.detail
+    if isinstance(detail, dict) and "detail" in detail:
+        # Already formatted by our controller exception handlers
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=detail
+        )
+    
+    # Generic formatting for standard FastAPI errors
     return JSONResponse(
         status_code=exc.status_code,
-        content={"success": False, "message": str(exc.detail)}
+        content={"success": False, "message": str(detail)}
+    )
+
+# Add custom error handler for validation errors
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    errors = exc.errors()
+    error_messages = []
+    
+    for error in errors:
+        field = ".".join(str(loc) for loc in error["loc"])
+        message = error["msg"]
+        error_messages.append(f"{field}: {message}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "success": False,
+            "message": "Validation error",
+            "errors": error_messages
+        }
+    )
+
+# Add custom error handler for generic exceptions
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    # Log the full traceback for debugging
+    logger.error(f"Unhandled exception: {str(exc)}")
+    logger.error(traceback.format_exc())
+    
+    # Return a generic error message
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "success": False,
+            "message": "An unexpected error occurred. Please try again later."
+        }
     )
 
 # Add rate limiter
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Custom handler for rate limit exceeded
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "success": False,
+            "message": "Too many requests. Please try again later."
+        }
+    )
+
 app.add_middleware(SlowAPIMiddleware)
 
 # Add CORS middleware
@@ -154,55 +207,8 @@ async def root(request: Request):
             "/api/search",
             "/api/comments",
             "/api/reports",
-            "/api/popularity",
-            "/api/time"
+            "/api/popularity"
         ]
-    }
-
-# Time and timezone endpoint
-@app.get("/api/time", tags=["utility"])
-async def get_time_info():
-    """
-    Get server time in UTC and common timezones
-    """
-    from datetime import datetime
-    import pytz
-    
-    # Current time in UTC
-    now_utc = datetime.now(pytz.UTC)
-    
-    # Common timezones to include
-    common_timezones = [
-        "America/New_York",      # Eastern Time
-        "America/Chicago",       # Central Time
-        "America/Denver",        # Mountain Time
-        "America/Los_Angeles",   # Pacific Time
-        "Europe/London",         # GMT/BST
-        "Europe/Paris",          # Central European Time
-        "Asia/Tokyo",            # Japan Time
-        "Asia/Shanghai",         # China Time
-        "Asia/Kolkata",          # Indian Standard Time
-        "Australia/Sydney"       # Australian Eastern Time
-    ]
-    
-    # Build timezone information
-    timezone_info = {}
-    for tz_name in common_timezones:
-        timezone = pytz.timezone(tz_name)
-        local_time = now_utc.astimezone(timezone)
-        timezone_info[tz_name] = {
-            "time": local_time.isoformat(),
-            "offset": local_time.utcoffset().total_seconds() / 3600,
-            "timezone_abbr": local_time.strftime("%Z")
-        }
-    
-    return {
-        "success": True,
-        "data": {
-            "server_time_utc": now_utc.isoformat(),
-            "timestamp": int(now_utc.timestamp()),
-            "timezones": timezone_info
-        }
     }
 
 # Health check endpoint
