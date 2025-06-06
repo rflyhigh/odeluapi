@@ -114,10 +114,17 @@ async def get_user_or_admin(request: Request):
             # Return admin user object
             return {"_id": "admin", "username": "admin", "role": "admin", "is_admin": True}
     
-    # If not admin, try to get regular user from token
-    user = await get_current_user_optional(request)
-    if user:
-        return user
+    # If not admin, try to get regular user token
+    token = None
+    authorization = request.headers.get("Authorization")
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    
+    # Call get_current_user_optional with the extracted token
+    if token:
+        user = await get_current_user_optional(token)
+        if user:
+            return user
         
     # Neither admin nor user auth is valid
     raise HTTPException(
