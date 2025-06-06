@@ -478,6 +478,20 @@ async def verify_admin_api_key(request: Request):
         }
     }
 
+@router.get("/auth/verify-no-limit")
+async def verify_admin_api_key_no_limit(request: Request):
+    """
+    Verify admin API key without rate limiting - used for UI auth checks
+    """
+    # If we got here, it means the API key is valid (because of the middleware)
+    return {
+        "success": True,
+        "data": {
+            "role": "admin",
+            "is_admin": True
+        }
+    }
+
 @router.get("/auth/me")
 @limiter.limit(RATE_LIMIT_ADMIN)
 async def get_admin_profile(request: Request):
