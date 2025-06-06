@@ -175,8 +175,16 @@ async def update_report_status(report_id: str, update_data: ReportUpdate, admin_
         update_dict = {
             "status": update_data.status,
             "updatedAt": datetime.now(),
-            "resolved_by": ObjectId(admin_user["_id"])
         }
+
+        # Handle admin user ID correctly (could be string or ObjectId)
+        if "_id" in admin_user:
+            if isinstance(admin_user["_id"], str):
+                # If it's just "admin" or another non-ObjectId string, store it as is
+                update_dict["resolved_by"] = admin_user["_id"] 
+            elif ObjectId.is_valid(str(admin_user["_id"])):
+                # If it's a valid ObjectId (either as string or ObjectId), convert to ObjectId
+                update_dict["resolved_by"] = ObjectId(str(admin_user["_id"]))
         
         if update_data.resolution_message:
             update_dict["resolution_message"] = update_data.resolution_message

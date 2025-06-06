@@ -6,7 +6,7 @@ from controllers import movie_controller
 from controllers.comment_controller import get_comments
 from middleware.user_tracker import get_user_id
 from utils.auth import get_current_user_optional
-from middleware.auth_required import require_auth
+from middleware.auth_required import require_auth, allow_user_or_admin
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from config import RATE_LIMIT_DEFAULT
@@ -24,7 +24,7 @@ async def get_all_movies(
     limit: int = Query(20, ge=1, le=100),
     page: int = Query(1, ge=1),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get all movies with optional filtering and pagination
@@ -36,7 +36,7 @@ async def get_all_movies(
 async def get_featured_movies(
     request: Request,
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get featured movies
@@ -49,7 +49,7 @@ async def get_movie_by_id(
     request: Request,
     movie_id: str = Path(..., description="The ID of the movie to get"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get a movie by ID
@@ -63,7 +63,7 @@ async def update_watch_status(
     movie_id: str = Path(..., description="The ID of the movie to update"),
     progress: float = Query(0, ge=0, le=100),
     completed: bool = False,
-    current_user = Depends(require_auth),
+    current_user = Depends(allow_user_or_admin),
     user_id: str = Depends(get_user_id)
 ):
     """
@@ -82,7 +82,7 @@ async def get_movie_comments(
     limit: int = Query(50, description="Number of comments to return"),
     skip: int = Query(0, description="Number of comments to skip"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get comments for a movie

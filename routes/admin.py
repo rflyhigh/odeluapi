@@ -5,6 +5,8 @@ import logging
 
 from controllers import admin_controller # Ensure this import is correct
 from controllers.comment_controller import get_comments, delete_comment
+from controllers import report_controller
+from models.report import ReportUpdate
 from middleware.api_auth import verify_api_key
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -386,3 +388,110 @@ async def admin_delete_comment(
     # Create a mock admin user object
     admin_user = {"role": "admin"}
     return await delete_comment(comment_id, admin_user)
+
+# Report Admin Routes
+@router.get("/reports")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_all_reports(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, description="Filter by status: pending, resolved, rejected"),
+    content_type: Optional[str] = Query(None, description="Filter by content type: movie, show")
+):
+    """
+    Get all reports with pagination and optional filtering (Admin only)
+    """
+    return await report_controller.get_all_reports(page, limit, status, content_type)
+
+@router.get("/reports/counts")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_report_counts(request: Request):
+    """
+    Get counts of reports by status and type (Admin only)
+    """
+    return await report_controller.get_report_counts()
+
+@router.get("/reports/{report_id}")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_report_by_id(
+    request: Request,
+    report_id: str = Path(..., description="The ID of the report to get")
+):
+    """
+    Get a specific report by ID (Admin only)
+    """
+    return await report_controller.get_report_by_id(report_id)
+
+@router.put("/reports/{report_id}")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def update_report_status(
+    request: Request,
+    report_id: str = Path(..., description="The ID of the report to update"),
+    update_data: ReportUpdate = Body(...)
+):
+    """
+    Update a report's status (Admin only)
+    """
+    # Create a mock admin user object with _id field
+    admin_user = {"role": "admin", "_id": "admin"}
+    return await report_controller.update_report_status(report_id, update_data, admin_user)
+
+@router.delete("/reports/{report_id}")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def delete_report(
+    request: Request,
+    report_id: str = Path(..., description="The ID of the report to delete")
+):
+    """
+    Delete a report (Admin only)
+    """
+    return await report_controller.delete_report(report_id)
+
+@router.get("/reports/content/{content_type}/{content_id}")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_content_reports(
+    request: Request,
+    content_type: str = Path(..., description="Type of content: movie or show"),
+    content_id: str = Path(..., description="ID of the content to get reports for"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """
+    Get reports for a specific content item (Admin only)
+    """
+    return await report_controller.get_content_reports(content_id, content_type, page, limit)
+
+# Admin Auth Routes
+@router.get("/auth/verify")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def verify_admin_api_key(request: Request):
+    """
+    Verify admin API key and return basic admin info
+    """
+    # If we got here, it means the API key is valid (because of the middleware)
+    return {
+        "success": True,
+        "data": {
+            "role": "admin",
+            "is_admin": True
+        }
+    }
+
+@router.get("/auth/me")
+@limiter.limit(RATE_LIMIT_ADMIN)
+async def get_admin_profile(request: Request):
+    """
+    Get admin user profile
+    """
+    # If we got here, it means the API key is valid (because of the middleware)
+    return {
+        "success": True,
+        "data": {
+            "_id": "admin",
+            "username": "admin",
+            "role": "admin",
+            "is_admin": True,
+            "email": "admin@odelu.com"
+        }
+    }

@@ -6,7 +6,7 @@ from controllers import show_controller
 from controllers.comment_controller import get_comments
 from middleware.user_tracker import get_user_id
 from utils.auth import get_current_user_optional
-from middleware.auth_required import require_auth
+from middleware.auth_required import require_auth, allow_user_or_admin
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from config import RATE_LIMIT_DEFAULT
@@ -24,7 +24,7 @@ async def get_all_shows(
     limit: int = Query(20, ge=1, le=100),
     page: int = Query(1, ge=1),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get all shows with optional filtering and pagination
@@ -36,7 +36,7 @@ async def get_all_shows(
 async def get_featured_shows(
     request: Request,
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get featured shows
@@ -49,7 +49,7 @@ async def get_show_by_id(
     request: Request,
     show_id: str = Path(..., description="The ID of the show to get"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get a show by ID with all seasons but not all episodes
@@ -65,7 +65,7 @@ async def get_season_episodes(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=50),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get paginated episodes for a specific season
@@ -78,7 +78,7 @@ async def get_episode_by_id(
     request: Request,
     episode_id: str = Path(..., description="The ID of the episode to get"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get an episode by ID
@@ -92,7 +92,7 @@ async def update_episode_watch_status(
     episode_id: str = Path(..., description="The ID of the episode to update"),
     progress: float = Query(0, ge=0, le=100),
     completed: bool = False,
-    current_user = Depends(require_auth),
+    current_user = Depends(allow_user_or_admin),
     user_id: str = Depends(get_user_id)
 ):
     """
@@ -110,7 +110,7 @@ async def get_all_season_episodes(
     show_id: str = Path(..., description="The ID of the show"),
     season_id: str = Path(..., description="The ID of the season"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get all episodes for a specific season without pagination
@@ -126,7 +126,7 @@ async def get_show_comments(
     limit: int = Query(50, description="Number of comments to return"),
     skip: int = Query(0, description="Number of comments to skip"),
     user_id: str = Depends(get_user_id),
-    current_user = Depends(require_auth)
+    current_user = Depends(allow_user_or_admin)
 ):
     """
     Get comments for a show

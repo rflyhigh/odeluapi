@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from database import create_indexes, check_redis_connection, CACHE_ENABLED, REDIS_URL, delete_cache_pattern
 from routes import movies, shows, admin, user, auth, watchlist, search, comments, reports, popularity
 from config import RATE_LIMIT_DEFAULT, COMMENT_CACHE_TTL
+from middleware.api_auth import AdminPathMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -178,6 +179,9 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Add admin path middleware to handle API route redirections
+app.add_middleware(AdminPathMiddleware)
 
 # Include routers
 app.include_router(movies.router, prefix="/api/movies", tags=["movies"])

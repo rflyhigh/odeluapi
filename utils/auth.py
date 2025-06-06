@@ -19,9 +19,15 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token")
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/auth/token", auto_error=False)
+# OAuth2 scheme - these endpoints don't need authentication
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="api/auth/login",  
+    auto_error=True
+)
+oauth2_scheme_optional = OAuth2PasswordBearer(
+    tokenUrl="api/auth/login",
+    auto_error=False
+)
 
 # Token model
 class Token(BaseModel):
