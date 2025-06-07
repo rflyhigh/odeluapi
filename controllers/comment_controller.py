@@ -35,6 +35,12 @@ def sanitize_comment_content(content: str) -> str:
     
     return sanitized
 
+def decode_html_entities(content: str) -> str:
+    """
+    Decode HTML entities back to their original characters
+    """
+    return html.unescape(content)
+
 async def create_comment(comment_data: CommentCreate, current_user: dict):
     """
     Create a new comment on a movie or show.
@@ -212,18 +218,26 @@ async def get_comments(content_id: str, content_type: str, parent_id: Optional[s
             "replies": 1,
             "parent_id": 1
         }
-            
-        # Get comments and total count in parallel for better performance
-        comments_future = comment_collection.find(query, projection).sort("createdAt", -1).skip(skip).limit(limit).to_list(length=limit)
-        total_future = comment_collection.count_documents(query)
         
-        # Execute both database operations concurrently
-        comments, total = await asyncio.gather(comments_future, total_future)
+        # Get total count for pagination
+        total_count = await comment_collection.count_documents(query)
         
-        # Process avatars and fetch replies for each comment
+        # Get comments with pagination
+        comments_cursor = comment_collection.find(query, projection=projection)
+        comments_cursor.sort("createdAt", -1)  # Sort by newest first
+        comments_cursor.skip(skip).limit(limit)
+        
+        comments = await comments_cursor.to_list(length=limit)
+        
+        # Process comments
+        result = []
         for comment in comments:
+            # Decode HTML entities in comment content
+            if "content" in comment:
+                comment["content"] = decode_html_entities(comment["content"])
+            
             # Add avatar if missing
-            if "avatar" not in comment:
+            if "avatar" not in comment or comment["avatar"] is None:
                 user = await user_collection.find_one(
                     {"_id": comment["user_id"]}, 
                     projection={"avatar": 1}
@@ -232,36 +246,16 @@ async def get_comments(content_id: str, content_type: str, parent_id: Optional[s
                     comment["avatar"] = user["avatar"]
                 else:
                     comment["avatar"] = None
-            
-            # Fetch replies if this is a top-level comment
-            if "replies" in comment and comment["replies"]:
-                reply_ids = [ObjectId(r) for r in comment["replies"]]
-                replies = await comment_collection.find(
-                    {"_id": {"$in": reply_ids}},
-                    projection=projection
-                ).to_list(length=len(reply_ids))
-                
-                # Process avatars for replies
-                for reply in replies:
-                    if "avatar" not in reply:
-                        user = await user_collection.find_one(
-                            {"_id": reply["user_id"]}, 
-                            projection={"avatar": 1}
-                        )
-                        if user and "avatar" in user:
-                            reply["avatar"] = user["avatar"]
-                        else:
-                            reply["avatar"] = None
-                
-                # Sort replies by creation date
-                replies.sort(key=lambda x: x["createdAt"], reverse=True)
-                comment["replies"] = replies
+                    
+            # Add to result
+            result.append(serialize_doc(comment))
         
+        # Return with pagination info
         return {
             "success": True,
-            "data": {
-                "comments": serialize_doc(comments),
-                "total": total,
+            "data": result,
+            "pagination": {
+                "total": total_count,
                 "limit": limit,
                 "skip": skip
             }
@@ -277,8 +271,11 @@ async def get_comments(content_id: str, content_type: str, parent_id: Optional[s
         )
 
 async def get_comment_by_id(comment_id: str):
-    """Get a specific comment by ID"""
+    """
+    Get a specific comment by ID
+    """
     try:
+        # Find comment
         comment = await comment_collection.find_one({"_id": ObjectId(comment_id)})
         if not comment:
             raise HTTPException(
@@ -286,6 +283,21 @@ async def get_comment_by_id(comment_id: str):
                 detail={"success": False, "message": "Comment not found"}
             )
             
+        # Decode HTML entities in comment content
+        if "content" in comment:
+            comment["content"] = decode_html_entities(comment["content"])
+            
+        # Add avatar if missing
+        if "avatar" not in comment:
+            user = await user_collection.find_one(
+                {"_id": comment["user_id"]}, 
+                projection={"avatar": 1}
+            )
+            if user and "avatar" in user:
+                comment["avatar"] = user["avatar"]
+            else:
+                comment["avatar"] = None
+                
         return {"success": True, "data": serialize_doc(comment)}
     
     except HTTPException:
@@ -464,6 +476,10 @@ async def get_comment_tree(comment_id: str):
                 detail={"success": False, "message": "Comment not found"}
             )
             
+        # Decode HTML entities in comment content
+        if "content" in comment:
+            comment["content"] = decode_html_entities(comment["content"])
+            
         # Add avatar if missing
         if "avatar" not in comment:
             user = await user_collection.find_one(
@@ -489,6 +505,23 @@ async def get_comment_tree(comment_id: str):
             reply_ids = [ObjectId(r) for r in comment["replies"]]
             replies_cursor = comment_collection.find({"_id": {"$in": reply_ids}})
             all_replies = await replies_cursor.to_list(length=len(reply_ids))
+            
+            # Process each reply
+            for reply in all_replies:
+                # Decode HTML entities in reply content
+                if "content" in reply:
+                    reply["content"] = decode_html_entities(reply["content"])
+                
+                # Add avatar if missing
+                if "avatar" not in reply:
+                    user = await user_collection.find_one(
+                        {"_id": reply["user_id"]}, 
+                        projection={"avatar": 1}
+                    )
+                    if user and "avatar" in user:
+                        reply["avatar"] = user["avatar"]
+                    else:
+                        reply["avatar"] = None
             
             # Create a lookup map
             replies_map = {str(r["_id"]): r for r in all_replies}
@@ -545,63 +578,76 @@ async def get_comment_tree(comment_id: str):
 
 async def get_user_comments(user_id: str, limit: int = 50, skip: int = 0):
     """
-    Get all comments made by a specific user.
+    Get all comments made by a specific user
     """
     try:
         # Validate user exists
-        user_obj_id = ObjectId(user_id)
-        user = await user_collection.find_one(
-            {"_id": user_obj_id},
-            projection={"_id": 1, "username": 1, "avatar": 1}
-        )
-        
+        user = await user_collection.find_one({"_id": ObjectId(user_id)}, projection={"_id": 1, "username": 1, "avatar": 1})
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"success": False, "message": "User not found"}
             )
-            
-        # Query all comments by this user
-        query = {"user_id": user_obj_id}
         
-        # Optimize projection to return only needed fields
-        projection = {
-            "_id": 1,
-            "content": 1,
-            "content_id": 1,
-            "content_type": 1,
-            "parent_id": 1,
-            "createdAt": 1,
-            "updatedAt": 1,
-            "replies": 1
-        }
+        # Build query
+        query = {"user_id": ObjectId(user_id)}
         
-        # Run queries in parallel for better performance
-        comments_future = comment_collection.find(query, projection).sort("createdAt", -1).skip(skip).limit(limit).to_list(length=limit)
-        total_future = comment_collection.count_documents(query)
+        # Get total count for pagination
+        total_count = await comment_collection.count_documents(query)
         
-        # Execute both database operations concurrently
-        comments, total = await asyncio.gather(comments_future, total_future)
+        # Get comments with pagination
+        comments_cursor = comment_collection.find(query)
+        comments_cursor.sort("createdAt", -1)  # Sort by newest first
+        comments_cursor.skip(skip).limit(limit)
         
-        # Add user info to all comments to avoid additional lookups
-        avatar = user.get("avatar", None)
-        username = user.get("username", "")
+        comments = await comments_cursor.to_list(length=limit)
         
+        # Process comments
+        result = []
         for comment in comments:
-            comment["avatar"] = avatar
-            comment["username"] = username
+            # Decode HTML entities in comment content
+            if "content" in comment:
+                comment["content"] = decode_html_entities(comment["content"])
+                
+            # Add content details (movie/show title)
+            content_type = comment.get("content_type", "")
+            content_id = comment.get("content_id", "")
+            
+            if content_type and content_id:
+                if content_type == "movie":
+                    content = await movie_collection.find_one(
+                        {"_id": content_id},
+                        projection={"title": 1, "poster_path": 1}
+                    )
+                    if content:
+                        comment["content_title"] = content.get("title", "Unknown Movie")
+                        comment["content_poster"] = content.get("poster_path", "")
+                else:
+                    content = await show_collection.find_one(
+                        {"_id": content_id},
+                        projection={"name": 1, "poster_path": 1}
+                    )
+                    if content:
+                        comment["content_title"] = content.get("name", "Unknown Show")
+                        comment["content_poster"] = content.get("poster_path", "")
+            
+            # Add to result
+            result.append(serialize_doc(comment))
         
+        # Return with pagination info
         return {
             "success": True,
             "data": {
-                "comments": serialize_doc(comments),
-                "total": total,
-                "limit": limit,
-                "skip": skip,
                 "user": {
-                    "id": str(user["_id"]),
-                    "username": username,
-                    "avatar": avatar
+                    "_id": str(user["_id"]),
+                    "username": user.get("username", ""),
+                    "avatar": user.get("avatar", "")
+                },
+                "comments": result,
+                "pagination": {
+                    "total": total_count,
+                    "limit": limit,
+                    "skip": skip
                 }
             }
         }
@@ -610,6 +656,47 @@ async def get_user_comments(user_id: str, limit: int = 50, skip: int = 0):
         raise
     except Exception as e:
         logger.error(f"Error in get_user_comments: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "message": str(e)}
+        )
+
+async def fix_comment_html_entities():
+    """
+    Fix existing comments in the database by decoding HTML entities
+    This is an admin-only function
+    """
+    try:
+        # Get all comments
+        comments_cursor = comment_collection.find({})
+        comments = await comments_cursor.to_list(length=None)
+        
+        fixed_count = 0
+        
+        # Process each comment
+        for comment in comments:
+            if "content" in comment:
+                # Decode HTML entities in content
+                decoded_content = decode_html_entities(comment["content"])
+                
+                # Update if different
+                if decoded_content != comment["content"]:
+                    await comment_collection.update_one(
+                        {"_id": comment["_id"]},
+                        {"$set": {"content": decoded_content}}
+                    )
+                    fixed_count += 1
+        
+        # Clear all comment caches
+        await delete_cache_pattern("comments:*")
+        await delete_cache_pattern("comment:*")
+        await delete_cache_pattern("comment_tree:*")
+        await delete_cache_pattern("user_comments:*")
+        
+        return {"success": True, "message": f"Fixed {fixed_count} comments with HTML entities"}
+    
+    except Exception as e:
+        logger.error(f"Error in fix_comment_html_entities: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "message": str(e)}
