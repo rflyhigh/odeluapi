@@ -99,11 +99,27 @@ app = FastAPI(
 # Add custom error handler for authentication errors
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Preserve original auth error messages for auth endpoints
     if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"success": False, "message": "Authentication required. Please login to access this content."}
-        )
+        # Check if this is an auth endpoint
+        if request.url.path.startswith("/api/auth/"):
+            # For auth endpoints, preserve the original error message
+            if isinstance(exc.detail, dict):
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content=exc.detail
+                )
+            else:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"success": False, "message": str(exc.detail)}
+                )
+        else:
+            # For non-auth endpoints, use the generic login message
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"success": False, "message": "Authentication required. Please login to access this content."}
+            )
         
     # Extract the detail and format it consistently
     detail = exc.detail
