@@ -16,21 +16,27 @@ logger = logging.getLogger(__name__)
 def sanitize_comment_content(content: str) -> str:
     """
     Sanitize comment content to prevent XSS attacks
-    - Escape HTML entities
+    - Escape HTML entities except for common punctuation
     - Remove potentially malicious patterns
     """
-    # Escape HTML entities
-    sanitized = html.escape(content)
+    # Custom HTML escaping that preserves apostrophes
+    sanitized = content
+    sanitized = sanitized.replace('&', '&amp;')
+    sanitized = sanitized.replace('<', '&lt;')
+    sanitized = sanitized.replace('>', '&gt;')
+    sanitized = sanitized.replace('"', '&quot;')
+    # Note: We don't replace apostrophes (') to preserve text like "don't", "can't", etc.
     
     # Strip potentially harmful patterns
     patterns = [
         r'javascript:',
         r'data:text/html',
-        r'&#x', # Hex encoding
-        # Remove the pattern that's causing apostrophes to be sanitized
-        # r'&#', # Decimal encoding
         r'expression\s*\(',
         r'vbscript:',
+        # Only remove numeric HTML entities that could be used for encoding bypasses
+        # but preserve normal text with numbers
+        r'&#x[0-9a-fA-F]+;',  # Hex encoding
+        r'&#[0-9]+;',         # Decimal encoding
     ]
     
     for pattern in patterns:
