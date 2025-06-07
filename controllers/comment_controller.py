@@ -26,8 +26,6 @@ def sanitize_comment_content(content: str) -> str:
     patterns = [
         r'javascript:',
         r'data:text/html',
-        r'&#x', # Hex encoding
-        r'&#', # Decimal encoding
         r'expression\s*\(',
         r'vbscript:',
     ]
